@@ -1,6 +1,7 @@
 import { BrowserRecorder } from "./browser-recorder";
 
 import { CollectionLoader } from "@webrecorder/wabac/swlib";
+import { Downloader, type ResponseWithFilename } from "../sw/downloader";
 
 import { listAllMsg } from "../utils";
 
@@ -26,6 +27,12 @@ let autorun = false;
 const openWinMap = new Map();
 
 const collLoader = new CollectionLoader();
+const API_DRAFT_ENDPOINT =
+  "http://localhost:8000/hemeroteca/api/sources/draft";
+const API_LOGIN_URL = "http://localhost:8000/login";
+const uploadInProgress = new Set<string>();
+// Keep local data until the user finishes the final web form save.
+const AUTO_DELETE_LOCAL_AFTER_UPLOAD = false;
 
 const disabledCSPTabs = new Set();
 
@@ -38,11 +45,6 @@ function main() {
     id: "toggle-rec",
     title: "Start Recording",
     contexts: ["browser_action"],
-  });
-  chrome.contextMenus.create({
-    id: "view-rec",
-    title: "View Web Archives",
-    contexts: ["all"],
   });
 }
 
@@ -86,7 +88,7 @@ function popupHandler(port) {
 
       case "stopRecording":
         // @ts-expect-error - TS7005 - Variable 'tabId' implicitly has an 'any' type.
-        stopRecorder(tabId);
+        await stopRecorder(tabId, { triggerDraft: true });
         break;
 
       case "toggleBehaviors":
@@ -219,10 +221,6 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // @ts-expect-error - TS7006 - Parameter 'info' implicitly has an 'any' type. | TS7006 - Parameter 'tab' implicitly has an 'any' type.
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   switch (info.menuItemId) {
-    case "view-rec":
-      chrome.tabs.create({ url: chrome.runtime.getURL("index.html") });
-      break;
-
     case "toggle-rec":
       if (!isRecording(tab.id)) {
         if (isValidUrl(tab.url)) {
@@ -266,13 +264,238 @@ async function startRecorder(tabId, opts) {
 
 // ===========================================================================
 // @ts-expect-error - TS7006 - Parameter 'tabId' implicitly has an 'any' type.
-function stopRecorder(tabId) {
-  if (self.recorders[tabId]) {
-    self.recorders[tabId].detach();
-    return true;
+async function stopRecorder(tabId, { triggerDraft = false } = {}) {
+  const recorder = self.recorders[tabId];
+  if (!recorder) {
+    return false;
   }
 
-  return false;
+  recorder.detach();
+
+  try {
+    await waitForRecorderToFlush(recorder);
+    // @ts-expect-error - TS2339 - Property 'collId' does not exist on type 'BrowserRecorder'.
+    const collId = recorder.collId;
+    // @ts-expect-error - TS2339 - Property 'pageUrl' does not exist on type 'BrowserRecorder'.
+    const pageUrl = recorder.pageUrl;
+    if (triggerDraft) {
+      await uploadCollectionToApi(collId, pageUrl, tabId);
+    }
+  } catch (e) {
+    console.warn("API upload failed:", e);
+  }
+
+  return true;
+}
+
+async function waitForRecorderToFlush(recorder: unknown, timeoutMs = 20000) {
+  const started = Date.now();
+  const rec = recorder as { running?: boolean; numPending?: number };
+  while (Date.now() - started < timeoutMs) {
+    const isRunning = rec.running;
+    const numPending = rec.numPending || 0;
+
+    if (!isRunning && numPending === 0) {
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
+function normalizeSourceUrl(input: string) {
+  if (!input) {
+    return "";
+  }
+
+  try {
+    const parsed = new URL(input);
+    let result = parsed.href;
+    if (result.length > 2048) {
+      result = parsed.origin + parsed.pathname;
+    }
+    if (result.length > 2048) {
+      result = parsed.origin;
+    }
+    return result;
+  } catch (_e) {
+    return "";
+  }
+}
+
+async function getTabUrl(tabId: number): Promise<string> {
+  if (!tabId) {
+    return "";
+  }
+
+  return await new Promise((resolve) => {
+    chrome.tabs.get(tabId, (tab: { url?: string } | undefined) => {
+      if (chrome.runtime.lastError || !tab?.url) {
+        resolve("");
+        return;
+      }
+      resolve(tab.url);
+    });
+  });
+}
+
+async function resolveCapturedSourceUrl(tabId: number, pageUrl: string) {
+  const normalizedRecorderUrl = normalizeSourceUrl(pageUrl || "");
+  if (normalizedRecorderUrl) {
+    return normalizedRecorderUrl;
+  }
+
+  const tabUrl = await getTabUrl(tabId);
+  const normalizedTabUrl = normalizeSourceUrl(tabUrl);
+  if (normalizedTabUrl) {
+    return normalizedTabUrl;
+  }
+
+  return "";
+}
+
+function ensureWaczFilename(filename: string | undefined, collId: string) {
+  const safeCollId = String(collId || "archive").replace(/[^a-zA-Z0-9-_]/g, "-");
+  const baseName = filename || `${safeCollId}.wacz`;
+  if (baseName.endsWith(".wacz") || baseName.endsWith(".wacz.zip")) {
+    return baseName;
+  }
+  return `${baseName}.wacz`;
+}
+
+async function postDraftForm(formData: FormData) {
+  return await fetch(API_DRAFT_ENDPOINT, {
+    method: "POST",
+    body: formData,
+    credentials: "include",
+    redirect: "follow",
+  });
+}
+
+async function uploadCollectionToApi(
+  collId: string,
+  pageUrl: string,
+  tabId: number,
+) {
+  if (!collId || uploadInProgress.has(collId)) {
+    return;
+  }
+
+  uploadInProgress.add(collId);
+
+  try {
+    const coll = await collLoader.loadColl(collId);
+    if (!coll) {
+      throw new Error("Collection not found");
+    }
+
+    const dl = new Downloader({ coll, format: "wacz" });
+    const dlResp = (await dl.download()) as ResponseWithFilename;
+    if (!(dlResp instanceof Response)) {
+      throw new Error("Failed to generate WACZ response");
+    }
+
+    const filename = ensureWaczFilename(dlResp.filename, collId);
+    const blob = await dlResp.blob();
+
+    const sourceUrl = await resolveCapturedSourceUrl(tabId, pageUrl);
+    if (!sourceUrl) {
+      throw new Error("captured_url_missing");
+    }
+
+    const formData = new FormData();
+    formData.set("url", sourceUrl);
+    formData.set(
+      "waczFile",
+      new File([blob], filename, { type: "application/octet-stream" }),
+    );
+
+    const resp = await postDraftForm(formData);
+
+    // Laravel can redirect to login with a 200 HTML page after following redirects.
+    if (resp.redirected && resp.url.includes("/login")) {
+      throw new Error("auth_required_redirect");
+    }
+
+    if (!resp.ok) {
+      const details = await resp.text();
+      if (resp.status === 401) {
+        throw new Error("auth_required_401");
+      }
+      if (resp.status === 419) {
+        throw new Error(`csrf_token_expired_419: ${details}`);
+      }
+      if (resp.status === 422) {
+        throw new Error(`validation_failed_422: ${details}`);
+      }
+      if (resp.status >= 500) {
+        throw new Error(`server_error_${resp.status}: ${details}`);
+      }
+      throw new Error(`API ${resp.status}: ${details}`);
+    }
+
+    const data = await resp.json();
+    const rawOpenUrl = data?.openUrl || data?.open_url || data?.url;
+    const draftToken = data?.draftToken || data?.draft_token || data?.token;
+
+    let openUrl = "";
+    if (rawOpenUrl) {
+      openUrl = /^https?:\/\//i.test(rawOpenUrl)
+        ? rawOpenUrl
+        : new URL(rawOpenUrl, API_DRAFT_ENDPOINT).href;
+    }
+
+    if (!openUrl || !draftToken) {
+      throw new Error("draft_response_missing_openUrl_or_draftToken");
+    }
+
+    try {
+      await chrome.tabs.create({ url: openUrl });
+    } catch (e) {
+      console.warn("Failed to open draft tab:", e);
+      await chrome.tabs.create({ url: API_LOGIN_URL });
+      throw e;
+    }
+
+    console.log(`Draft upload ready for collection ${collId}`);
+
+    if (AUTO_DELETE_LOCAL_AFTER_UPLOAD) {
+      await collLoader.deleteColl(collId);
+
+      if (tabId) {
+        await removeLocalOption(`${tabId}-collId`);
+      }
+
+      const metadata = { title: "My Archiving Session" };
+      const next = await collLoader.initNewColl(metadata);
+      if (next?.name) {
+        defaultCollId = next.name;
+        await setLocalOption("defaultCollId", defaultCollId);
+      }
+    }
+  } catch (e: unknown) {
+    const msg =
+      e instanceof Error
+        ? e.message
+        : String(e || "unknown_error");
+
+    if (msg.includes("auth_required")) {
+      await chrome.tabs.create({ url: API_LOGIN_URL });
+      console.warn("Laravel session missing. Please login and try again.");
+    } else if (msg.includes("csrf_token_expired_419")) {
+      console.warn("Draft endpoint returned 419. Backend must allow this route without CSRF for extension flow.");
+    } else if (msg.includes("validation_failed_422")) {
+      console.warn("Draft validation failed (422):", msg);
+    } else if (msg.includes("server_error_")) {
+      console.warn("Draft temporary save failed on server:", msg);
+    } else if (msg.includes("captured_url_missing")) {
+      console.warn("No se pudo obtener la URL capturada de la pestana.");
+    } else {
+      console.warn("Draft upload failed:", msg);
+    }
+  } finally {
+    uploadInProgress.delete(collId);
+  }
 }
 
 // ===========================================================================

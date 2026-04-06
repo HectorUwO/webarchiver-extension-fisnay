@@ -6,7 +6,6 @@ import fasPlus from "@fortawesome/fontawesome-free/svgs/solid/plus.svg";
 import fasBox from "@fortawesome/fontawesome-free/svgs/solid/square.svg";
 import fasPlay from "@fortawesome/fontawesome-free/svgs/solid/play.svg";
 import fasPause from "@fortawesome/fontawesome-free/svgs/solid/pause.svg";
-import fasHome from "@fortawesome/fontawesome-free/svgs/solid/home.svg";
 import fasQ from "@fortawesome/fontawesome-free/svgs/solid/question.svg";
 import fasCheck from "@fortawesome/fontawesome-free/svgs/solid/check.svg";
 import fasX from "@fortawesome/fontawesome-free/svgs/solid/times.svg";
@@ -257,30 +256,6 @@ class RecPopup extends LitElement {
   // @ts-expect-error - TS7006 - Parameter 'changedProperties' implicitly has an 'any' type.
   updated(changedProperties) {
     if (
-      // @ts-expect-error - TS2339 - Property 'pageUrl' does not exist on type 'RecPopup'.
-      this.pageUrl &&
-      // @ts-expect-error - TS2339 - Property 'pageTs' does not exist on type 'RecPopup'.
-      this.pageTs &&
-      (changedProperties.has("pageUrl") ||
-        changedProperties.has("pageTs") ||
-        changedProperties.has("recording") ||
-        changedProperties.has("collId"))
-    ) {
-      const params = new URLSearchParams();
-      // @ts-expect-error - TS2339 - Property 'pageUrl' does not exist on type 'RecPopup'.
-      params.set("url", this.pageUrl);
-      params.set(
-        "ts",
-        // @ts-expect-error - TS2339 - Property 'pageTs' does not exist on type 'RecPopup'.
-        new Date(this.pageTs).toISOString().replace(/[-:TZ.]/g, ""),
-      );
-      params.set("view", "pages");
-
-      // @ts-expect-error - TS2339 - Property 'replayUrl' does not exist on type 'RecPopup'.
-      this.replayUrl = this.getCollPage() + "#" + params.toString();
-    }
-
-    if (
       changedProperties.has("pageUrl") ||
       changedProperties.has("failureMsg")
     ) {
@@ -297,20 +272,8 @@ class RecPopup extends LitElement {
     }
   }
 
-  getHomePage() {
-    return chrome.runtime.getURL("index.html");
-  }
-
   get extRoot() {
     return chrome.runtime.getURL("");
-  }
-
-  getCollPage() {
-    const sourceParams = new URLSearchParams();
-    // @ts-expect-error - TS2339 - Property 'collId' does not exist on type 'RecPopup'.
-    sourceParams.set("source", "local://" + this.collId);
-
-    return this.getHomePage() + "?" + sourceParams.toString();
   }
 
   get notRecordingMessage() {
@@ -709,19 +672,6 @@ class RecPopup extends LitElement {
               <wr-icon size="1.0em" title="Guide" .src="${fasQ}"></wr-icon>
             </span>
           </a>
-          <a
-            target="_blank"
-            href="${this.getHomePage()}"
-            class="smallest button is-small is-inverted"
-          >
-            <span class="icon is-small">
-              <wr-icon
-                size="1.0em"
-                title="Home - All Archives"
-                .src="${fasHome}"
-              ></wr-icon>
-            </span>
-          </a>
         </div>
         <div class="view-row">
           ${
@@ -759,24 +709,7 @@ class RecPopup extends LitElement {
           }
         </div>
         ${this.renderCollCreate()}
-        <div class="view-row is-marginless">
-          <div>
-            ${
-              // @ts-expect-error - TS2339 - Property 'canRecord' does not exist on type 'RecPopup'.
-              this.canRecord
-                ? html` <p>
-                    <a
-                      target="_blank"
-                      href="${this.getCollPage()}"
-                      class="is-size-6"
-                      >View Archived Pages</a
-                    >
-                  </p>`
-                : ""
-            }
-          </div>
-          ${this.renderStartOpt()}
-        </div>
+        <div class="view-row is-marginless">${this.renderStartOpt()}</div>
 
         ${
           // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
@@ -812,20 +745,6 @@ class RecPopup extends LitElement {
             ? html`
                 <div class="view-row underline">
                   <div class="session-head">Archived in this tab</div>
-                  ${
-                    // @ts-expect-error - TS2339 - Property 'replayUrl' does not exist on type 'RecPopup'.
-                    this.replayUrl
-                      ? html`<a
-                          target="_blank"
-                          class="is-size-6"
-                          href="${
-                            // @ts-expect-error - TS2339 - Property 'replayUrl' does not exist on type 'RecPopup'.
-                            this.replayUrl
-                          }"
-                          >Replay Current Page</a
-                        >`
-                      : ""
-                  }
                 </div>
                 <div class="view-row">
                   <table class="status">

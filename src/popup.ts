@@ -4,12 +4,11 @@ import bulma from "bulma/bulma.sass";
 
 import fasPlus from "@fortawesome/fontawesome-free/svgs/solid/plus.svg";
 import fasBox from "@fortawesome/fontawesome-free/svgs/solid/square.svg";
-import fasQ from "@fortawesome/fontawesome-free/svgs/solid/question.svg";
 import fasCheck from "@fortawesome/fontawesome-free/svgs/solid/check.svg";
 import fasX from "@fortawesome/fontawesome-free/svgs/solid/times.svg";
 import fasCaretDown from "@fortawesome/fontawesome-free/svgs/solid/caret-down.svg";
 
-import wrRec from "./assets/icons/recLogo.svg";
+import fiscaliaLogo from "./assets/brand/fiscalia-icon-color.svg";
 
 import prettyBytes from "pretty-bytes";
 
@@ -69,6 +68,13 @@ class RecPopup extends LitElement {
     this.waitingForStart = false;
     // @ts-expect-error - TS2339 - Property 'waitingForStop' does not exist on type 'RecPopup'.
     this.waitingForStop = false;
+
+    // @ts-expect-error - TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'.
+    this.uploadActive = false;
+    // @ts-expect-error - TS2339 - Property 'uploadProgress' does not exist on type 'RecPopup'.
+    this.uploadProgress = 0;
+    // @ts-expect-error - TS2339 - Property 'uploadMessage' does not exist on type 'RecPopup'.
+    this.uploadMessage = "";
   }
 
   static get properties() {
@@ -81,6 +87,9 @@ class RecPopup extends LitElement {
       recording: { type: Boolean },
       status: { type: Object },
       waitingForStart: { type: Boolean },
+      uploadActive: { type: Boolean },
+      uploadProgress: { type: Number },
+      uploadMessage: { type: String },
 
       replayUrl: { type: String },
       pageUrl: { type: String },
@@ -91,7 +100,7 @@ class RecPopup extends LitElement {
     };
   }
 
-  async firstUpdated() {
+  firstUpdated() {
     document.addEventListener("click", () => {
       // @ts-expect-error - TS2339 - Property 'collDrop' does not exist on type 'RecPopup'.
       if (this.collDrop === "show") {
@@ -140,7 +149,7 @@ class RecPopup extends LitElement {
   // @ts-expect-error - TS7006 - Parameter 'message' implicitly has an 'any' type.
   async onMessage(message) {
     switch (message.type) {
-      case "status":
+      case "status": {
         // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
         this.recording = message.recording;
         // @ts-expect-error - TS2339 - Property 'waitingForStart' does not exist on type 'RecPopup'.
@@ -149,7 +158,11 @@ class RecPopup extends LitElement {
           this.waitingForStart = false;
         }
         // @ts-expect-error - TS2339 - Property 'waitingForStop' does not exist on type 'RecPopup'.
-        if (this.waitingForStop && !message.recording && !message.stopping) {
+        const waitingForStop = this.waitingForStop;
+        // @ts-expect-error - TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'.
+        const uploadActive = this.uploadActive;
+
+        if (waitingForStop && !message.recording && !message.stopping && !uploadActive) {
           // @ts-expect-error - TS2339 - Property 'waitingForStop' does not exist on type 'RecPopup'.
           this.waitingForStop = false;
         }
@@ -165,6 +178,15 @@ class RecPopup extends LitElement {
         }
         // @ts-expect-error - TS2339 - Property 'failureMsg' does not exist on type 'RecPopup'.
         this.failureMsg = message.failureMsg;
+        // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
+        if (this.recording) {
+          // @ts-expect-error - TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'.
+          this.uploadActive = false;
+          // @ts-expect-error - TS2339 - Property 'uploadProgress' does not exist on type 'RecPopup'.
+          this.uploadProgress = 0;
+          // @ts-expect-error - TS2339 - Property 'uploadMessage' does not exist on type 'RecPopup'.
+          this.uploadMessage = "";
+        }
         // @ts-expect-error - TS2339 - Property 'collId' does not exist on type 'RecPopup'.
         if (this.collId !== message.collId) {
           // @ts-expect-error - TS2339 - Property 'collId' does not exist on type 'RecPopup'.
@@ -175,6 +197,22 @@ class RecPopup extends LitElement {
           await setLocalOption(`${this.tabId}-collId`, this.collId);
         }
         break;
+      }
+
+      case "uploadStatus": {
+        // @ts-expect-error - TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'.
+        this.uploadActive = !message.done;
+        // @ts-expect-error - TS2339 - Property 'uploadProgress' does not exist on type 'RecPopup'.
+        this.uploadProgress = Math.max(0, Math.min(100, message.progress || 0));
+        // @ts-expect-error - TS2339 - Property 'uploadMessage' does not exist on type 'RecPopup'.
+        this.uploadMessage = message.text || "Subiendo archivo...";
+
+        if (message.done) {
+          // @ts-expect-error - TS2339 - Property 'waitingForStop' does not exist on type 'RecPopup'.
+          this.waitingForStop = false;
+        }
+        break;
+      }
 
       case "collections":
         // @ts-expect-error - TS2339 - Property 'collections' does not exist on type 'RecPopup'.
@@ -199,7 +237,7 @@ class RecPopup extends LitElement {
         // @ts-expect-error - TS2339 - Property 'collTitle' does not exist on type 'RecPopup'.
         if (!this.collTitle) {
           // @ts-expect-error - TS2339 - Property 'collTitle' does not exist on type 'RecPopup'.
-          this.collTitle = "[No Title]";
+          this.collTitle = "[Sin título]";
         }
         break;
     }
@@ -245,7 +283,7 @@ class RecPopup extends LitElement {
   }
 
   get notRecordingMessage() {
-    return "Not Archiving this Tab";
+    return "Esperando para archivar esta pestaña";
   }
 
   static get styles() {
@@ -257,6 +295,11 @@ class RecPopup extends LitElement {
         font-size: initial !important;
         color: #0f172a;
         font-family: "Nunito Sans", "Segoe UI", sans-serif;
+        --accent-color: #8f7f67;
+        --accent-color-hover: #7c6e58;
+        --accent-soft-bg: #f2eee8;
+        --accent-soft-border: #d7cdbf;
+        --accent-soft-text: #6d5f4c;
       }
 
       * {
@@ -297,21 +340,24 @@ class RecPopup extends LitElement {
         font-size: 0.8rem;
       }
 
-      .help-link {
+      .brand-logo-wrap {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        background: linear-gradient(145deg, #ffffff, #f1f5f9);
         border: 1px solid #d9dde3;
-        border-radius: 999px;
-        width: 34px;
-        height: 34px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+      }
+
+      .brand-logo {
+        width: 38px;
+        height: 38px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        color: #334155;
-        background: #fff;
-      }
-
-      .help-link:hover {
-        border-color: #9ca3af;
-        background: #f8fafc;
       }
 
       .status-row {
@@ -354,6 +400,56 @@ class RecPopup extends LitElement {
         color: #166534;
         border-color: #86efac;
         background: #f0fdf4;
+      }
+
+      .pill.is-unarchivable {
+        color: #991b1b;
+        border-color: #fecaca;
+        background: #fef2f2;
+      }
+
+      .pill.is-uploading {
+        color: var(--accent-soft-text);
+        border-color: var(--accent-soft-border);
+        background: var(--accent-soft-bg);
+      }
+
+      .upload-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        width: 100%;
+      }
+
+      .upload-text {
+        color: var(--accent-soft-text);
+        font-size: 0.78rem;
+        font-weight: 600;
+      }
+
+      .upload-track {
+        width: 100%;
+        height: 7px;
+        border-radius: 999px;
+        background: var(--accent-soft-bg);
+        border: 1px solid var(--accent-soft-border);
+        overflow: hidden;
+      }
+
+      .upload-fill {
+        height: 100%;
+        background: linear-gradient(
+          90deg,
+          var(--accent-color),
+          var(--accent-color-hover)
+        );
+        transition: width 0.2s ease;
+      }
+
+      .upload-percent {
+        color: var(--accent-soft-text);
+        font-size: 0.72rem;
+        font-weight: 700;
       }
 
       .coll-select {
@@ -419,15 +515,57 @@ class RecPopup extends LitElement {
       }
 
       .action-button {
-        background: #0f172a;
+        background: var(--accent-color);
         color: #fff;
-        border-color: #0f172a;
+        border-color: var(--accent-color);
       }
 
       .action-button:hover {
-        background: #1e293b;
+        background: var(--accent-color-hover);
         color: #fff;
-        border-color: #1e293b;
+        border-color: var(--accent-color-hover);
+      }
+
+      .capture-btn {
+        min-height: 40px !important;
+        border-radius: 10px;
+        border: 1px solid #1f3a5f;
+        padding: 0 14px;
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.16);
+        transition: background-color 0.15s ease, border-color 0.15s ease,
+          color 0.15s ease;
+      }
+
+      .capture-btn.is-start {
+        background: var(--accent-color);
+        border-color: var(--accent-color);
+        color: #ffffff;
+      }
+
+      .capture-btn.is-stop {
+        background: #7f1d1d;
+        border-color: #7f1d1d;
+        color: #ffffff;
+      }
+
+      .capture-btn:hover {
+        background: var(--accent-color-hover);
+        border-color: var(--accent-color-hover);
+      }
+
+      .capture-btn.is-stop:hover {
+        background: #8f2424;
+        border-color: #8f2424;
+      }
+
+      .capture-btn:disabled {
+        background: #94a3b8;
+        border-color: #94a3b8;
+        box-shadow: none;
+        color: #e2e8f0;
       }
 
       .smallest.button {
@@ -518,18 +656,54 @@ class RecPopup extends LitElement {
       form {
         width: 100%;
       }
+
+      .credits {
+        margin-top: 10px;
+        text-align: center;
+        font-size: 0.72rem;
+        color: #64748b;
+      }
     `);
   }
 
   renderStatus() {
+    // @ts-expect-error - TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'.
+    if (this.uploadActive) {
+      return html`
+        <div class="upload-wrap">
+          <span class="upload-text"
+            >${
+              // @ts-expect-error - TS2339 - Property 'uploadMessage' does not exist on type 'RecPopup'.
+              this.uploadMessage || "Subiendo archivo al servidor..."
+            }</span
+          >
+          <div class="upload-track">
+            <div
+              class="upload-fill"
+              style="width: ${
+                // @ts-expect-error - TS2339 - Property 'uploadProgress' does not exist on type 'RecPopup'.
+                this.uploadProgress
+              }%"
+            ></div>
+          </div>
+          <span class="upload-percent"
+            >${
+              // @ts-expect-error - TS2339 - Property 'uploadProgress' does not exist on type 'RecPopup'.
+              this.uploadProgress
+            }%</span
+          >
+        </div>
+      `;
+    }
+
     // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
     if (this.recording) {
       return html`<b
           >${
             // @ts-expect-error - TS2339 - Property 'waitingForStop' does not exist on type 'RecPopup'.
-            this.waitingForStop ? "Finishing " : ""
+            this.waitingForStop ? "Finalizando " : ""
           }
-          Archiving:&nbsp;</b
+          archivado:&nbsp;</b
         >${
           // @ts-expect-error - TS2339 - Property 'status' does not exist on type 'RecPopup'. | TS2339 - Property 'status' does not exist on type 'RecPopup'.
           this.status?.numPending
@@ -539,16 +713,16 @@ class RecPopup extends LitElement {
                     // @ts-expect-error - TS2339 - Property 'status' does not exist on type 'RecPopup'.
                     this.status.numPending
                   }
-                  URLs
-                  pending${
+                  URL
+                  pendientes${
                     // @ts-expect-error - TS2339 - Property 'waitingForStop' does not exist on type 'RecPopup'.
                     this.waitingForStop
                       ? "."
-                      : ", please wait before loading a new page."
+                      : ", espera antes de cargar una página nueva."
                   }</span
                 >
               `
-            : html` <span class="status-ready">Idle, Continue Browsing</span>`
+            : html` <span class="status-ready">En espera, continúa navegando</span>`
         }`;
     }
 
@@ -557,11 +731,11 @@ class RecPopup extends LitElement {
       return html`
         <div class="error">
           <p>
-            Sorry, there was an error starting archiving on this page. Please
-            try again or try a different page.
+            Hubo un error al iniciar el archivado en esta página. Inténtalo de
+            nuevo o prueba con otra página.
           </p>
           <p class="error-msg">
-            Error Details:
+            Detalles del error:
             <i
               >${
                 // @ts-expect-error - TS2339 - Property 'failureMsg' does not exist on type 'RecPopup'.
@@ -570,13 +744,13 @@ class RecPopup extends LitElement {
             >
           </p>
           <p>
-            If the error persists, check the
+            Si el error persiste, revisa la página de
             <a
               href="https://archiveweb.page/guide/troubleshooting/errors"
               target="_blank"
-              >Common Errors and Issues</a
+              >errores comunes y soluciones</a
             >
-            page in the guide for known issues and possible solutions.
+            en la guía para ver problemas conocidos y posibles soluciones.
           </p>
         </div>
       `;
@@ -588,20 +762,19 @@ class RecPopup extends LitElement {
       if (this.pageUrl?.startsWith(this.extRoot)) {
         return html`
           <p class="is-size-7">
-            This page is part of the extension. You can view existing archived
-            items from here. To start a new archiving session, click the
-            <wr-icon .src="${wrRec}"></wr-icon> Start Archiving button and enter
-            a new URL.
+            Esta página es parte de la extensión. Desde aquí puedes ver
+            elementos ya archivados. Para iniciar una nueva sesión, pulsa
+            "Iniciar archivado" e ingresa una URL nueva.
           </p>
         `;
       }
 
-      return html`<i>Can't archive this page.</i>`;
+      return html`<i>No se puede archivar esta página.</i>`;
     }
 
     // @ts-expect-error - TS2339 - Property 'waitingForStart' does not exist on type 'RecPopup'.
     if (this.waitingForStart) {
-      return html`<i>Archiving will start after the page reloads...</i>`;
+      return html`<i>El archivado iniciará después de recargar la página...</i>`;
     }
 
     return html`<i>${this.notRecordingMessage}</i>`;
@@ -613,9 +786,9 @@ class RecPopup extends LitElement {
         <div class="is-size-7">
           ${
             // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
-            this.recording ? "Currently archiving" : "Save"
+            this.recording ? "Archivando ahora" : "Guardar"
           }
-          to:&nbsp;
+          en:&nbsp;
         </div>
         <div
           class="dropdown ${
@@ -662,7 +835,7 @@ class RecPopup extends LitElement {
                             >
                               <span class="icon is-small">
                                 <wr-icon .src="${fasPlus}"></wr-icon> </span
-                              >New Archiving Session
+                              >Nueva sesión de archivado
                             </a>
                             <hr class="dropdown-divider" />`
                         : ""
@@ -702,7 +875,7 @@ class RecPopup extends LitElement {
         <form @submit="${this.onNewColl}">
           <div class="flex-form">
             <label for="new-name" class="is-size-7 is-italic"
-              >New Archiving Session:</label
+              >Nueva sesión de archivado:</label
             >
             <div class="control">
               <input
@@ -710,7 +883,7 @@ class RecPopup extends LitElement {
                 id="new-name"
                 type="text"
                 required
-                placeholder="Enter Archiving Session Name"
+                placeholder="Escribe el nombre de la sesión"
               />
             </div>
             <button class="button is-small is-outlined" type="submit">
@@ -732,41 +905,53 @@ class RecPopup extends LitElement {
   }
 
   render() {
+    // @ts-expect-error - TS2339 - Property 'canRecord' does not exist on type 'RecPopup'. | TS2339 - Property 'pageUrl' does not exist on type 'RecPopup'.
+    const isUnarchivable = !this.canRecord && !this.pageUrl?.startsWith(this.extRoot);
+
     return html`
       <div class="shell">
         <div class="brand-row">
           <div>
             <div class="brand-title">Hemeroteca</div>
-            <div class="brand-subtitle">Archivo digital</div>
+            <div class="brand-subtitle">Extensión de Archivado Digital</div>
           </div>
-          <a
-            target="_blank"
-            href="https://archiveweb.page/guide/usage"
-            class="help-link"
-            title="Guia"
-          >
-            <wr-icon size="0.95em" .src="${fasQ}"></wr-icon>
-          </a>
+          <div class="brand-logo-wrap" title="Fiscalia">
+            <wr-icon class="brand-logo" size="38px" .src="${fiscaliaLogo}"></wr-icon>
+          </div>
         </div>
 
         <div class="container">
           <div class="status-row">
             <p class="rec-state">${this.renderStatus()}</p>
             <span class="pill ${
-              // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
-              this.recording ? "is-recording" : ""
+              isUnarchivable
+                ? "is-unarchivable"
+                // @ts-expect-error - TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'.
+                : this.uploadActive
+                  ? "is-uploading"
+                // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
+                : this.recording
+                  ? "is-recording"
+                  : ""
             }">
               ${
-                // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
-                this.recording ? "Grabando" : "Listo"
+                isUnarchivable
+                  ? "No archivable"
+                  // @ts-expect-error - TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'.
+                  : this.uploadActive
+                    ? "Subiendo"
+                  // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
+                  : this.recording
+                    ? "Grabando"
+                    : "Listo"
               }
             </span>
           </div>
 
           <div class="view-row" style="justify-content: flex-end;">
           ${
-            // @ts-expect-error - TS2339 - Property 'canRecord' does not exist on type 'RecPopup'.
-            this.canRecord
+            // @ts-expect-error - TS2339 - Property 'canRecord' does not exist on type 'RecPopup'. | TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'.
+            this.canRecord && !this.uploadActive
               ? html`
                   <button
                     autofocus
@@ -775,21 +960,22 @@ class RecPopup extends LitElement {
                       // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
                       !this.recording ? this.onStart : this.onStop
                     }"
-                    class="button action-button"
+                    class="button action-button capture-btn ${
+                      // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
+                      !this.recording ? "is-start" : "is-stop"
+                    }"
                   >
-                    <span class="icon">
-                      ${
-                        // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
-                        !this.recording
-                          ? html` <wr-icon .src=${wrRec}></wr-icon>`
-                          : html` <wr-icon .src=${fasBox}></wr-icon>`
-                      }
-                    </span>
+                    ${
+                      // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
+                      this.recording
+                        ? html`<span class="icon"><wr-icon .src=${fasBox}></wr-icon></span>`
+                        : html``
+                    }
                     <span
                       >${
                         // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
 
-                        !this.recording ? "Start Archiving" : "Stop Archiving"
+                        !this.recording ? "Iniciar archivado" : "Detener archivado"
                       }</span
                     >
                   </button>
@@ -803,12 +989,12 @@ class RecPopup extends LitElement {
             this.status?.sizeTotal
               ? html`
                   <div class="view-row underline">
-                    <div class="session-head">Archivado en esta pestana</div>
+                    <div class="session-head">Archivado en esta pestaña</div>
                   </div>
                   <div class="view-row">
                     <table class="status">
                     <tr>
-                      <td>Size Stored:</td>
+                      <td>Tamaño guardado:</td>
                       <th>
                         ${
                           // @ts-expect-error - TS2339 - Property 'status' does not exist on type 'RecPopup'.
@@ -817,29 +1003,11 @@ class RecPopup extends LitElement {
                       </th>
                     </tr>
                     <tr>
-                      <td>Size Loaded:</td>
+                      <td>Tamaño cargado:</td>
                       <th>
                         ${
                           // @ts-expect-error - TS2339 - Property 'status' does not exist on type 'RecPopup'.
                           prettyBytes(this.status.sizeTotal)
-                        }
-                      </th>
-                    </tr>
-                    <tr>
-                      <td>Pages:</td>
-                      <th>
-                        ${
-                          // @ts-expect-error - TS2339 - Property 'status' does not exist on type 'RecPopup'.
-                          this.status.numPages
-                        }
-                      </th>
-                    </tr>
-                    <tr>
-                      <td>URLs:</td>
-                      <th>
-                        ${
-                          // @ts-expect-error - TS2339 - Property 'status' does not exist on type 'RecPopup'.
-                          this.status.numUrls
                         }
                       </th>
                     </tr>
@@ -849,6 +1017,7 @@ class RecPopup extends LitElement {
               : html``
           }
         </div>
+        <div class="credits">Basado en <a href="https://webrecorder.net/archivewebpage/" target="_blank" rel="noopener noreferrer">Archive webpage</a></div>
       </div>
     `;
   }
@@ -864,6 +1033,13 @@ class RecPopup extends LitElement {
   }
 
   onStart() {
+    // @ts-expect-error - TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'.
+    this.uploadActive = false;
+    // @ts-expect-error - TS2339 - Property 'uploadProgress' does not exist on type 'RecPopup'.
+    this.uploadProgress = 0;
+    // @ts-expect-error - TS2339 - Property 'uploadMessage' does not exist on type 'RecPopup'.
+    this.uploadMessage = "";
+
     this.sendMessage({
       type: "startRecording",
       // @ts-expect-error - TS2339 - Property 'collId' does not exist on type 'RecPopup'.
@@ -879,6 +1055,13 @@ class RecPopup extends LitElement {
   }
 
   onStop() {
+    // @ts-expect-error - TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'.
+    this.uploadActive = true;
+    // @ts-expect-error - TS2339 - Property 'uploadProgress' does not exist on type 'RecPopup'.
+    this.uploadProgress = 5;
+    // @ts-expect-error - TS2339 - Property 'uploadMessage' does not exist on type 'RecPopup'.
+    this.uploadMessage = "Deteniendo captura y preparando subida...";
+
     this.sendMessage({ type: "stopRecording" });
     // @ts-expect-error - TS2339 - Property 'waitingForStart' does not exist on type 'RecPopup'.
     this.waitingForStart = false;

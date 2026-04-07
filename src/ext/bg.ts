@@ -29,6 +29,10 @@ const openWinMap = new Map();
 const collLoader = new CollectionLoader();
 const API_DRAFT_ENDPOINT = "http://localhost:8000/hemeroteca/api/sources/draft";
 const uploadInProgress = new Set<string>();
+const uploadStatusByTab = new Map<
+  number,
+  { progress: number; text: string; done: boolean; error: boolean }
+>();
 // Keep local data until the user finishes the final web form save.
 const AUTO_DELETE_LOCAL_AFTER_UPLOAD = false;
 
@@ -75,6 +79,12 @@ function popupHandler(port) {
           self.recorders[tabId].doUpdateStatus();
         }
         port.postMessage(await listAllMsg(collLoader));
+        if (uploadStatusByTab.has(tabId)) {
+          port.postMessage({
+            type: "uploadStatus",
+            ...uploadStatusByTab.get(tabId),
+          });
+        }
         break;
 
       case "startRecording": {
@@ -212,6 +222,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 // @ts-expect-error - TS7006 - Parameter 'tabId' implicitly has an 'any' type.
 chrome.tabs.onRemoved.addListener((tabId) => {
   delete self.recorders[tabId];
+  uploadStatusByTab.delete(tabId);
   removeLocalOption(`${tabId}-collId`);
 });
 
@@ -268,22 +279,87 @@ async function stopRecorder(tabId, { triggerDraft = false } = {}) {
     return false;
   }
 
+  sendUploadStatus(recorder, {
+    progress: 5,
+    text: "Deteniendo archivado...",
+    done: false,
+  }, tabId);
+
   recorder.detach();
 
   try {
     await waitForRecorderToFlush(recorder);
+    sendUploadStatus(recorder, {
+      progress: 25,
+      text: "Empaquetando archivo...",
+      done: false,
+    }, tabId);
     // @ts-expect-error - TS2339 - Property 'collId' does not exist on type 'BrowserRecorder'.
     const collId = recorder.collId;
     // @ts-expect-error - TS2339 - Property 'pageUrl' does not exist on type 'BrowserRecorder'.
     const pageUrl = recorder.pageUrl;
     if (triggerDraft) {
-      await uploadCollectionToApi(collId, pageUrl, tabId);
+      await uploadCollectionToApi(collId, pageUrl, tabId, recorder);
+    } else {
+      sendUploadStatus(recorder, {
+        progress: 100,
+        text: "Archivado detenido.",
+        done: true,
+      }, tabId);
     }
   } catch (e) {
     console.warn("API upload failed:", e);
+    sendUploadStatus(recorder, {
+      progress: 100,
+      text: "No se pudo completar la subida.",
+      done: true,
+      error: true,
+    }, tabId);
   }
 
   return true;
+}
+
+function sendUploadStatus(
+  recorder: unknown,
+  {
+    progress,
+    text,
+    done = false,
+    error = false,
+  }: {
+    progress: number;
+    text: string;
+    done?: boolean;
+    error?: boolean;
+  },
+  tabId?: number,
+) {
+  const rec = recorder as {
+    tabId?: number;
+    port?: { postMessage: (msg: Record<string, unknown>) => void };
+  };
+
+  const targetTabId = tabId || rec.tabId;
+  if (targetTabId) {
+    if (done) {
+      uploadStatusByTab.delete(targetTabId);
+    } else {
+      uploadStatusByTab.set(targetTabId, { progress, text, done, error });
+    }
+  }
+
+  if (!rec?.port) {
+    return;
+  }
+
+  rec.port.postMessage({
+    type: "uploadStatus",
+    progress,
+    text,
+    done,
+    error,
+  });
 }
 
 async function waitForRecorderToFlush(recorder: unknown, timeoutMs = 20000) {
@@ -477,6 +553,7 @@ async function uploadCollectionToApi(
   collId: string,
   pageUrl: string,
   tabId: number,
+  recorder?: unknown,
 ) {
   if (!collId || uploadInProgress.has(collId)) {
     return;
@@ -490,6 +567,12 @@ async function uploadCollectionToApi(
       throw new Error("Collection not found");
     }
 
+    sendUploadStatus(recorder, {
+      progress: 40,
+      text: "Generando archivos...",
+      done: false,
+    }, tabId);
+
     const dl = new Downloader({ coll, format: "wacz" });
     const dlResp = (await dl.download()) as ResponseWithFilename;
     if (!(dlResp instanceof Response)) {
@@ -498,6 +581,12 @@ async function uploadCollectionToApi(
 
     const filename = ensureWaczFilename(dlResp.filename, collId);
     const blob = await dlResp.blob();
+
+    sendUploadStatus(recorder, {
+      progress: 65,
+      text: "Preparando datos para enviar...",
+      done: false,
+    }, tabId);
 
     const sourceUrl = await resolveCapturedSourceUrl(tabId, pageUrl);
     if (!sourceUrl) {
@@ -515,6 +604,12 @@ async function uploadCollectionToApi(
       "waczFile",
       new File([blob], filename, { type: "application/octet-stream" }),
     );
+
+    sendUploadStatus(recorder, {
+      progress: 80,
+      text: "Subiendo archivo al servidor...",
+      done: false,
+    }, tabId);
 
     const resp = await postDraftForm(formData);
     const { text: respText, data } = await readDraftResponseData(resp);
@@ -542,7 +637,19 @@ async function uploadCollectionToApi(
       ? rawOpenUrl
       : new URL(rawOpenUrl, API_DRAFT_ENDPOINT).href;
 
+    sendUploadStatus(recorder, {
+      progress: 95,
+      text: "Subida completada. Abriendo formulario del servidor...",
+      done: false,
+    }, tabId);
+
     await chrome.tabs.create({ url: openUrl });
+
+    sendUploadStatus(recorder, {
+      progress: 100,
+      text: "Formulario abierto en el servidor.",
+      done: true,
+    }, tabId);
 
     console.log(`Draft form opened for collection ${collId}`);
 
@@ -579,6 +686,13 @@ async function uploadCollectionToApi(
     } else {
       console.warn("Source upload failed:", msg);
     }
+
+    sendUploadStatus(recorder, {
+      progress: 100,
+      text: "Error al subir el archivo al servidor.",
+      done: true,
+      error: true,
+    }, tabId);
   } finally {
     uploadInProgress.delete(collId);
   }

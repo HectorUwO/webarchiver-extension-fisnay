@@ -20,12 +20,12 @@ class AppRecPopup extends RecPopup {
     };
   }
 
-  firstUpdated(): Promise<void> {
+  firstUpdated() {
     listAllMsg(this.collLoader).then((msg) => {
       this.onMessage(msg);
     });
 
-    return super.firstUpdated();
+    super.firstUpdated();
   }
 
   updated(changedProperties: PropertyValues<this>) {

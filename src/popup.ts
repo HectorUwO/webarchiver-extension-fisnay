@@ -4,8 +4,6 @@ import bulma from "bulma/bulma.sass";
 
 import fasPlus from "@fortawesome/fontawesome-free/svgs/solid/plus.svg";
 import fasBox from "@fortawesome/fontawesome-free/svgs/solid/square.svg";
-import fasPlay from "@fortawesome/fontawesome-free/svgs/solid/play.svg";
-import fasPause from "@fortawesome/fontawesome-free/svgs/solid/pause.svg";
 import fasQ from "@fortawesome/fontawesome-free/svgs/solid/question.svg";
 import fasCheck from "@fortawesome/fontawesome-free/svgs/solid/check.svg";
 import fasX from "@fortawesome/fontawesome-free/svgs/solid/times.svg";
@@ -20,14 +18,6 @@ import {
   removeLocalOption,
   setLocalOption,
 } from "./localstorage";
-
-import {
-  BEHAVIOR_WAIT_LOAD,
-  BEHAVIOR_READY_START,
-  BEHAVIOR_RUNNING,
-  BEHAVIOR_PAUSED,
-  BEHAVIOR_DONE,
-} from "./consts";
 
 const allCss = unsafeCSS(bulma);
 // @ts-expect-error - TS7006 - Parameter 'custom' implicitly has an 'any' type.
@@ -79,12 +69,6 @@ class RecPopup extends LitElement {
     this.waitingForStart = false;
     // @ts-expect-error - TS2339 - Property 'waitingForStop' does not exist on type 'RecPopup'.
     this.waitingForStop = false;
-    // @ts-expect-error - TS2339 - Property 'behaviorState' does not exist on type 'RecPopup'.
-    this.behaviorState = BEHAVIOR_WAIT_LOAD;
-    // @ts-expect-error - TS2339 - Property 'behaviorMsg' does not exist on type 'RecPopup'.
-    this.behaviorMsg = "";
-    // @ts-expect-error - TS2339 - Property 'autorun' does not exist on type 'RecPopup'.
-    this.autorun = false;
   }
 
   static get properties() {
@@ -104,11 +88,6 @@ class RecPopup extends LitElement {
 
       canRecord: { type: Boolean },
       failureMsg: { type: String },
-
-      behaviorState: { type: String },
-      behaviorResults: { type: Object },
-      behaviorMsg: { type: String },
-      autorun: { type: Boolean },
     };
   }
 
@@ -120,9 +99,6 @@ class RecPopup extends LitElement {
         this.collDrop = "";
       }
     });
-
-    // @ts-expect-error - TS2339 - Property 'autorun' does not exist on type 'RecPopup'.
-    this.autorun = (await getLocalOption("autorunBehaviors")) === "1";
 
     this.registerMessages();
   }
@@ -179,14 +155,6 @@ class RecPopup extends LitElement {
         }
         // @ts-expect-error - TS2339 - Property 'status' does not exist on type 'RecPopup'.
         this.status = message;
-        // @ts-expect-error - TS2339 - Property 'behaviorState' does not exist on type 'RecPopup'.
-        this.behaviorState = message.behaviorState;
-        // @ts-expect-error - TS2339 - Property 'behaviorMsg' does not exist on type 'RecPopup'.
-        this.behaviorMsg = message.behaviorData?.msg || "Starting...";
-        // @ts-expect-error - TS2339 - Property 'behaviorResults' does not exist on type 'RecPopup'.
-        this.behaviorResults = message.behaviorData?.state;
-        // @ts-expect-error - TS2339 - Property 'autorun' does not exist on type 'RecPopup'.
-        this.autorun = message.autorun;
         if (message.pageUrl) {
           // @ts-expect-error - TS2339 - Property 'pageUrl' does not exist on type 'RecPopup'.
           this.pageUrl = message.pageUrl;
@@ -283,58 +251,146 @@ class RecPopup extends LitElement {
   static get styles() {
     return wrapCss(css`
       :host {
+        display: block;
         width: 100%;
         height: 100%;
         font-size: initial !important;
+        color: #0f172a;
+        font-family: "Nunito Sans", "Segoe UI", sans-serif;
       }
 
-      .button {
-        height: 1.5em !important;
-        background-color: aliceblue;
+      * {
+        box-sizing: border-box;
       }
 
-      .smallest.button {
-        margin: 0.25em;
-        background-color: initial;
-        padding: 6px 12px;
+      .shell {
+        background: #f3f4f6;
+        padding: 14px;
+        min-height: 100vh;
+      }
+
+      .container {
+        border: 1px solid #d9dde3;
+        border-radius: 14px;
+        background: #ffffff;
+        box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+        padding: 12px;
+      }
+
+      .brand-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+
+      .brand-title {
+        font-size: 1.25rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        line-height: 1.1;
+      }
+
+      .brand-subtitle {
+        margin-top: 2px;
+        color: #64748b;
+        font-size: 0.8rem;
+      }
+
+      .help-link {
+        border: 1px solid #d9dde3;
+        border-radius: 999px;
+        width: 34px;
+        height: 34px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: #334155;
+        background: #fff;
+      }
+
+      .help-link:hover {
+        border-color: #9ca3af;
+        background: #f8fafc;
+      }
+
+      .status-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 9px 10px;
+        border-radius: 10px;
+        background: #f8fafc;
+        border: 1px solid #e5e7eb;
+      }
+
+      .view-row {
+        display: flex;
+        gap: 8px;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 10px;
       }
 
       .rec-state {
         margin-right: 1em;
         flex: auto;
+        font-size: 0.83rem;
+        line-height: 1.35;
       }
 
-      .status-row {
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        padding-bottom: 0.5em;
-        border-bottom: 1px solid lightgrey;
+      .pill {
+        border-radius: 999px;
+        border: 1px solid #cbd5e1;
+        background: #ffffff;
+        padding: 3px 8px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        color: #475569;
+        white-space: nowrap;
       }
 
-      .view-row {
-        display: flex;
-        flex-direction: row;
-        justify-content: space-between;
-        align-items: center;
-        margin-top: 0.5em;
-        font-size: 1.1em;
-      }
-
-      .autopilot {
-        justify-content: center;
+      .pill.is-recording {
+        color: #166534;
+        border-color: #86efac;
+        background: #f0fdf4;
       }
 
       .coll-select {
+        display: flex;
+        gap: 8px;
         align-items: center;
+        flex: 1;
+        min-width: 0;
+      }
+
+      .coll-select .is-size-7 {
+        color: #64748b;
+        font-size: 0.74rem !important;
+        white-space: nowrap;
       }
 
       .dropdown-item {
         width: initial !important;
+        font-size: 0.85rem;
       }
 
       .coll.button {
-        max-width: 120px;
+        max-width: 180px;
+        background: #fff;
+        border: 1px solid #d1d5db;
+        border-radius: 10px;
+        min-height: 34px;
+      }
+
+      .dropdown-menu {
+        min-width: 220px;
+      }
+
+      .dropdown-content {
+        border-radius: 10px;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 8px 24px rgba(2, 6, 23, 0.1);
       }
 
       .coll.button span {
@@ -343,37 +399,85 @@ class RecPopup extends LitElement {
         white-space: nowrap;
       }
 
-      .flex-form {
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        width: 100%;
+      .button {
+        min-height: 34px !important;
+        border-radius: 10px;
+        border: 1px solid #d1d5db;
+        background: #ffffff;
+        color: #0f172a;
+        padding: 0 10px;
+        font-size: 0.83rem;
       }
 
-      .flex-form * {
-        padding: 0.5em;
+      .button:hover {
+        border-color: #94a3b8;
+        background: #f8fafc;
+      }
+
+      .button:disabled {
+        opacity: 0.6;
+      }
+
+      .action-button {
+        background: #0f172a;
+        color: #fff;
+        border-color: #0f172a;
+      }
+
+      .action-button:hover {
+        background: #1e293b;
+        color: #fff;
+        border-color: #1e293b;
+      }
+
+      .smallest.button {
+        margin: 0;
+        background-color: #fff;
+        padding: 6px 10px;
+      }
+
+      .flex-form {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        width: 100%;
+        flex-wrap: wrap;
+      }
+
+      .flex-form > * {
+        padding: 0;
       }
 
       .session-head {
-        font-style: italic;
+        font-size: 0.8rem;
+        color: #475569;
+        font-weight: 700;
       }
 
       .underline {
-        margin-top: 1em;
-        border-bottom: 1px gray solid;
-        margin-bottom: 0.5em;
+        margin-top: 14px;
+        border-bottom: 1px solid #e2e8f0;
+        margin-bottom: 8px;
       }
 
       .status th {
-        padding-left: 0.5em;
+        padding-left: 10px;
+        color: #0f172a;
       }
 
       .status {
-        font-variant-caps: all-small-caps;
+        width: 100%;
+        font-size: 0.8rem;
+      }
+
+      .status td,
+      .status th {
+        border-bottom: 1px solid #edf2f7;
+        padding: 6px 0;
       }
 
       .status-sep {
-        border-bottom: 1px solid black;
+        border-bottom: 1px solid #94a3b8;
         width: 100%;
         height: 10px;
       }
@@ -383,20 +487,13 @@ class RecPopup extends LitElement {
         font-style: italic;
       }
 
-      .status-autopilot {
-        color: #3298dc;
-        max-width: 330px;
-        text-overflow: wrap;
-        word-break: break-all;
-      }
-
       .status-pending {
         color: #bb9f08;
         font-style: italic;
       }
       .error {
         font-size: 12px;
-        color: maroon;
+        color: #991b1b;
       }
 
       .error p {
@@ -407,21 +504,24 @@ class RecPopup extends LitElement {
         font-family: monospace;
         font-style: italic;
       }
+
+      .checkbox {
+        font-size: 0.76rem !important;
+        color: #334155;
+      }
+
+      .input.is-small {
+        border-radius: 8px;
+        border-color: #cbd5e1;
+      }
+
+      form {
+        width: 100%;
+      }
     `);
   }
 
   renderStatus() {
-    // @ts-expect-error - TS2339 - Property 'behaviorState' does not exist on type 'RecPopup'.
-    if (this.behaviorState === BEHAVIOR_RUNNING) {
-      return html`<span class="status-autopilot"
-        >Auto Recording,
-        ${
-          // @ts-expect-error - TS2339 - Property 'behaviorMsg' does not exist on type 'RecPopup'.
-          this.behaviorMsg
-        }</span
-      >`;
-    }
-
     // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
     if (this.recording) {
       return html`<b
@@ -591,33 +691,6 @@ class RecPopup extends LitElement {
     `;
   }
 
-  renderStartOpt() {
-    // @ts-expect-error - TS2339 - Property 'canRecord' does not exist on type 'RecPopup'. | TS2339 - Property 'recording' does not exist on type 'RecPopup'.
-    if (!this.canRecord || this.recording) {
-      return "";
-    }
-
-    return html`
-      <div class="field">
-        <label class="checkbox is-size-7">
-          <input
-            type="checkbox"
-            ?disabled="${
-              // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
-              this.recording
-            }"
-            ?checked="${
-              // @ts-expect-error - TS2339 - Property 'autorun' does not exist on type 'RecPopup'.
-              this.autorun
-            }"
-            @change="${this.onToggleAutoRun}"
-          />
-          Start With Autopilot
-        </label>
-      </div>
-    `;
-  }
-
   renderCollCreate() {
     // @ts-expect-error - TS2339 - Property 'collDrop' does not exist on type 'RecPopup'.
     if (this.collDrop !== "create") {
@@ -625,7 +698,7 @@ class RecPopup extends LitElement {
     }
 
     return html`
-      <div class="view-row is-marginless" style="background-color: #ddddff">
+      <div class="view-row is-marginless">
         <form @submit="${this.onNewColl}">
           <div class="flex-form">
             <label for="new-name" class="is-size-7 is-italic"
@@ -660,25 +733,41 @@ class RecPopup extends LitElement {
 
   render() {
     return html`
-      <div class="container">
-        <div class="status-row">
-          <p class="rec-state">${this.renderStatus()}</p>
+      <div class="shell">
+        <div class="brand-row">
+          <div>
+            <div class="brand-title">Hemeroteca</div>
+            <div class="brand-subtitle">Archivo digital</div>
+          </div>
           <a
             target="_blank"
             href="https://archiveweb.page/guide/usage"
-            class="smallest button is-small is-inverted"
+            class="help-link"
+            title="Guia"
           >
-            <span class="icon is-small">
-              <wr-icon size="1.0em" title="Guide" .src="${fasQ}"></wr-icon>
-            </span>
+            <wr-icon size="0.95em" .src="${fasQ}"></wr-icon>
           </a>
         </div>
-        <div class="view-row">
+
+        <div class="container">
+          <div class="status-row">
+            <p class="rec-state">${this.renderStatus()}</p>
+            <span class="pill ${
+              // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
+              this.recording ? "is-recording" : ""
+            }">
+              ${
+                // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
+                this.recording ? "Grabando" : "Listo"
+              }
+            </span>
+          </div>
+
+          <div class="view-row" style="justify-content: flex-end;">
           ${
             // @ts-expect-error - TS2339 - Property 'canRecord' does not exist on type 'RecPopup'.
             this.canRecord
               ? html`
-                  ${this.renderCollDropdown()}
                   <button
                     autofocus
                     ?disabled=${this.actionButtonDisabled}
@@ -686,7 +775,7 @@ class RecPopup extends LitElement {
                       // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
                       !this.recording ? this.onStart : this.onStop
                     }"
-                    class="button"
+                    class="button action-button"
                   >
                     <span class="icon">
                       ${
@@ -707,47 +796,17 @@ class RecPopup extends LitElement {
                 `
               : ""
           }
-        </div>
-        ${this.renderCollCreate()}
-        <div class="view-row is-marginless">${this.renderStartOpt()}</div>
+          </div>
 
-        ${
-          // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
-          this.recording
-            ? html`
-                <div class="view-row autopilot">
-                  <button
-                    @click="${this.onBehaviorToggle}"
-                    ?disabled="${
-                      // @ts-expect-error - TS2339 - Property 'behaviorState' does not exist on type 'RecPopup'.
-                      this.behaviorState === BEHAVIOR_WAIT_LOAD ||
-                      // @ts-expect-error - TS2339 - Property 'behaviorState' does not exist on type 'RecPopup'.
-                      this.behaviorState === BEHAVIOR_DONE ||
-                      // @ts-expect-error - TS2339 - Property 'waitingForStop' does not exist on type 'RecPopup'.
-                      this.waitingForStop
-                    }"
-                    class="button ${
-                      // @ts-expect-error - TS2339 - Property 'behaviorState' does not exist on type 'RecPopup'.
-                      this.behaviorState === BEHAVIOR_DONE
-                        ? "is-success"
-                        : "is-info"
-                    } is-small"
-                  >
-                    ${this.behaviorsButtonLabel}
-                  </button>
-                </div>
-              `
-            : ""
-        }
-        ${
-          // @ts-expect-error - TS2339 - Property 'status' does not exist on type 'RecPopup'. | TS2339 - Property 'status' does not exist on type 'RecPopup'.
-          this.status?.sizeTotal
-            ? html`
-                <div class="view-row underline">
-                  <div class="session-head">Archived in this tab</div>
-                </div>
-                <div class="view-row">
-                  <table class="status">
+          ${
+            // @ts-expect-error - TS2339 - Property 'status' does not exist on type 'RecPopup'. | TS2339 - Property 'status' does not exist on type 'RecPopup'.
+            this.status?.sizeTotal
+              ? html`
+                  <div class="view-row underline">
+                    <div class="session-head">Archivado en esta pestana</div>
+                  </div>
+                  <div class="view-row">
+                    <table class="status">
                     <tr>
                       <td>Size Stored:</td>
                       <th>
@@ -784,35 +843,12 @@ class RecPopup extends LitElement {
                         }
                       </th>
                     </tr>
-
-                    ${
-                      // @ts-expect-error - TS2339 - Property 'behaviorResults' does not exist on type 'RecPopup'.
-                      this.behaviorResults &&
-                      // @ts-expect-error - TS2339 - Property 'behaviorState' does not exist on type 'RecPopup'.
-                      this.behaviorState !== BEHAVIOR_WAIT_LOAD &&
-                      // @ts-expect-error - TS2339 - Property 'behaviorState' does not exist on type 'RecPopup'.
-                      this.behaviorState !== BEHAVIOR_READY_START
-                        ? html` <tr class="status-sep">
-                              <td></td>
-                              <td></td>
-                            </tr>
-                            ${
-                              // @ts-expect-error - TS2339 - Property 'behaviorResults' does not exist on type 'RecPopup'.
-                              Object.entries(this.behaviorResults).map(
-                                ([name, value]) =>
-                                  html` <tr>
-                                    <td>${name}</td>
-                                    <th>${value}</th>
-                                  </tr>`,
-                              )
-                            }`
-                        : ""
-                    }
-                  </table>
-                </div>
-              `
-            : html``
-        }
+                    </table>
+                  </div>
+                `
+              : html``
+          }
+        </div>
       </div>
     `;
   }
@@ -827,31 +863,6 @@ class RecPopup extends LitElement {
     return !this.recording ? this.waitingForStart : this.waitingForStop;
   }
 
-  get behaviorsButtonLabel() {
-    // @ts-expect-error - TS2339 - Property 'behaviorState' does not exist on type 'RecPopup'.
-    switch (this.behaviorState) {
-      case BEHAVIOR_READY_START:
-        return html` <wr-icon style="fill: white" .src="${fasPlay}"></wr-icon>
-          &nbsp;Start Autopilot!`;
-
-      case BEHAVIOR_RUNNING:
-        return html` <wr-icon style="fill: white" .src="${fasPause}"></wr-icon>
-          &nbsp;Pause Autopilot`;
-
-      case BEHAVIOR_PAUSED:
-        return html` <wr-icon style="fill: white" .src="${fasPlay}"></wr-icon>
-          &nbsp;Unpause Autopilot`;
-
-      case BEHAVIOR_DONE:
-        return html` <wr-icon style="fill: white" .src="${fasCheck}"></wr-icon>
-          &nbsp;Autopilot Done`;
-
-      case BEHAVIOR_WAIT_LOAD:
-      default:
-        return "Autopilot: Waiting for page to load...";
-    }
-  }
-
   onStart() {
     this.sendMessage({
       type: "startRecording",
@@ -859,8 +870,7 @@ class RecPopup extends LitElement {
       collId: this.collId,
       // @ts-expect-error - TS2339 - Property 'pageUrl' does not exist on type 'RecPopup'.
       url: this.pageUrl,
-      // @ts-expect-error - TS2339 - Property 'autorun' does not exist on type 'RecPopup'.
-      autorun: this.autorun,
+      autorun: false,
     });
     // @ts-expect-error - TS2339 - Property 'waitingForStart' does not exist on type 'RecPopup'.
     this.waitingForStart = true;
@@ -877,14 +887,6 @@ class RecPopup extends LitElement {
   }
 
   // @ts-expect-error - TS7006 - Parameter 'event' implicitly has an 'any' type.
-  async onToggleAutoRun(event) {
-    // @ts-expect-error - TS2339 - Property 'autorun' does not exist on type 'RecPopup'.
-    this.autorun = event.currentTarget.checked;
-    // @ts-expect-error - TS2339 - Property 'autorun' does not exist on type 'RecPopup'.
-    await setLocalOption("autorunBehaviors", this.autorun ? "1" : "0");
-  }
-
-  // @ts-expect-error - TS7006 - Parameter 'event' implicitly has an 'any' type.
   async onSelectColl(event) {
     // @ts-expect-error - TS2339 - Property 'collId' does not exist on type 'RecPopup'.
     this.collId = event.currentTarget.getAttribute("data-id");
@@ -897,10 +899,6 @@ class RecPopup extends LitElement {
     await setLocalOption(`${this.tabId}-collId`, this.collId);
     // @ts-expect-error - TS2339 - Property 'collId' does not exist on type 'RecPopup'.
     await setLocalOption("defaultCollId", this.collId);
-  }
-
-  onBehaviorToggle() {
-    this.sendMessage({ type: "toggleBehaviors" });
   }
 
   // @ts-expect-error - TS7006 - Parameter 'event' implicitly has an 'any' type.

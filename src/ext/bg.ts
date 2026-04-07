@@ -27,9 +27,7 @@ let autorun = false;
 const openWinMap = new Map();
 
 const collLoader = new CollectionLoader();
-const API_DRAFT_ENDPOINT =
-  "http://localhost:8000/hemeroteca/api/sources/draft";
-const API_LOGIN_URL = "http://localhost:8000/login";
+const API_DRAFT_ENDPOINT = "http://localhost:8000/hemeroteca/api/sources/draft";
 const uploadInProgress = new Set<string>();
 // Keep local data until the user finishes the final web form save.
 const AUTO_DELETE_LOCAL_AFTER_UPLOAD = false;
@@ -360,6 +358,9 @@ function ensureWaczFilename(filename: string | undefined, collId: string) {
   if (baseName.endsWith(".wacz") || baseName.endsWith(".wacz.zip")) {
     return baseName;
   }
+  if (baseName.endsWith(".zip")) {
+    return baseName.slice(0, -4) + ".wacz.zip";
+  }
   return `${baseName}.wacz`;
 }
 
@@ -368,8 +369,108 @@ async function postDraftForm(formData: FormData) {
     method: "POST",
     body: formData,
     credentials: "include",
+    headers: {
+      Accept: "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+    },
     redirect: "follow",
   });
+}
+
+async function readDraftResponseData(resp: Response) {
+  const text = await resp.text();
+  const contentType = resp.headers.get("content-type") || "";
+
+  if (!text) {
+    return { text: "", data: null };
+  }
+
+  if (contentType.includes("application/json")) {
+    return { text, data: JSON.parse(text) };
+  }
+
+  try {
+    return { text, data: JSON.parse(text) };
+  } catch (_e) {
+    return { text, data: null };
+  }
+}
+
+function extractDraftResult(data: unknown) {
+  const asString = (value: unknown) =>
+    typeof value === "string" && value.trim() ? value : "";
+
+  const root = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
+  const nested =
+    (root.data as Record<string, unknown>) ||
+    (root.result as Record<string, unknown>) ||
+    (root.payload as Record<string, unknown>) ||
+    (root.attributes as Record<string, unknown>) ||
+    {};
+
+  const rawOpenUrl = asString(
+    root.openUrl ||
+    root.open_url ||
+    root.url ||
+    root.formUrl ||
+    root.form_url ||
+    nested.openUrl ||
+    nested.open_url ||
+    nested.url ||
+    nested.formUrl ||
+    nested.form_url,
+  );
+
+  const draftToken = asString(
+    root.draftToken ||
+    root.draft_token ||
+    root.token ||
+    nested.draftToken ||
+    nested.draft_token ||
+    nested.token,
+  );
+
+  return { rawOpenUrl, draftToken };
+}
+
+async function getPageText(tabId: number) {
+  try {
+    if (!chrome.scripting?.executeScript) {
+      throw new Error("chrome_scripting_unavailable");
+    }
+
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => document.body?.innerText || "",
+    });
+
+    return results?.[0]?.result || "";
+  } catch (e) {
+    console.warn("Could not extract page text:", e);
+    return "";
+  }
+}
+
+async function captureThumbnail(tabId: number) {
+  const tab = await chrome.tabs.get(tabId);
+  if (!tab.windowId) {
+    throw new Error("thumbnail_window_missing");
+  }
+
+  const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
+    format: "png",
+    quality: 100,
+  });
+
+  const base64Data = dataUrl.split(",")[1];
+  const binaryData = atob(base64Data);
+  const arrayBuffer = new Uint8Array(binaryData.length);
+  for (let i = 0; i < binaryData.length; i++) {
+    arrayBuffer[i] = binaryData.charCodeAt(i);
+  }
+
+  const blob = new Blob([arrayBuffer], { type: "image/png" });
+  return new File([blob], "thumbnail.png", { type: "image/png" });
 }
 
 async function uploadCollectionToApi(
@@ -403,61 +504,47 @@ async function uploadCollectionToApi(
       throw new Error("captured_url_missing");
     }
 
+    const pageText = await getPageText(tabId);
+    const thumbnailFile = await captureThumbnail(tabId);
+
     const formData = new FormData();
-    formData.set("url", sourceUrl);
-    formData.set(
+    formData.append("url", sourceUrl);
+    formData.append("text", pageText);
+    formData.append("thumbnailFile", thumbnailFile);
+    formData.append(
       "waczFile",
       new File([blob], filename, { type: "application/octet-stream" }),
     );
 
     const resp = await postDraftForm(formData);
-
-    // Laravel can redirect to login with a 200 HTML page after following redirects.
-    if (resp.redirected && resp.url.includes("/login")) {
-      throw new Error("auth_required_redirect");
-    }
+    const { text: respText, data } = await readDraftResponseData(resp);
 
     if (!resp.ok) {
-      const details = await resp.text();
-      if (resp.status === 401) {
-        throw new Error("auth_required_401");
-      }
+      const errorBody = data ? JSON.stringify(data) : respText;
+      console.error("Draft upload failed", resp.status, errorBody);
       if (resp.status === 419) {
-        throw new Error(`csrf_token_expired_419: ${details}`);
+        throw new Error(`csrf_token_expired_419 (status ${resp.status}): ${errorBody}`);
       }
-      if (resp.status === 422) {
-        throw new Error(`validation_failed_422: ${details}`);
+      if (resp.status === 401 || resp.status === 403) {
+        throw new Error(`auth_required_${resp.status} (status ${resp.status}): ${errorBody}`);
       }
-      if (resp.status >= 500) {
-        throw new Error(`server_error_${resp.status}: ${details}`);
-      }
-      throw new Error(`API ${resp.status}: ${details}`);
+      throw new Error(`API ${resp.status}: ${errorBody}`);
     }
 
-    const data = await resp.json();
-    const rawOpenUrl = data?.openUrl || data?.open_url || data?.url;
-    const draftToken = data?.draftToken || data?.draft_token || data?.token;
+    const { rawOpenUrl, draftToken } = extractDraftResult(data);
 
-    let openUrl = "";
-    if (rawOpenUrl) {
-      openUrl = /^https?:\/\//i.test(rawOpenUrl)
-        ? rawOpenUrl
-        : new URL(rawOpenUrl, API_DRAFT_ENDPOINT).href;
+    if (!rawOpenUrl || !draftToken) {
+      const payload = data ? JSON.stringify(data) : respText;
+      throw new Error(`draft_response_missing_openUrl_or_draftToken: ${payload}`);
     }
 
-    if (!openUrl || !draftToken) {
-      throw new Error("draft_response_missing_openUrl_or_draftToken");
-    }
+    const openUrl = /^https?:\/\//i.test(rawOpenUrl)
+      ? rawOpenUrl
+      : new URL(rawOpenUrl, API_DRAFT_ENDPOINT).href;
 
-    try {
-      await chrome.tabs.create({ url: openUrl });
-    } catch (e) {
-      console.warn("Failed to open draft tab:", e);
-      await chrome.tabs.create({ url: API_LOGIN_URL });
-      throw e;
-    }
+    await chrome.tabs.create({ url: openUrl });
 
-    console.log(`Draft upload ready for collection ${collId}`);
+    console.log(`Draft form opened for collection ${collId}`);
 
     if (AUTO_DELETE_LOCAL_AFTER_UPLOAD) {
       await collLoader.deleteColl(collId);
@@ -479,19 +566,18 @@ async function uploadCollectionToApi(
         ? e.message
         : String(e || "unknown_error");
 
-    if (msg.includes("auth_required")) {
-      await chrome.tabs.create({ url: API_LOGIN_URL });
-      console.warn("Laravel session missing. Please login and try again.");
-    } else if (msg.includes("csrf_token_expired_419")) {
-      console.warn("Draft endpoint returned 419. Backend must allow this route without CSRF for extension flow.");
-    } else if (msg.includes("validation_failed_422")) {
-      console.warn("Draft validation failed (422):", msg);
-    } else if (msg.includes("server_error_")) {
-      console.warn("Draft temporary save failed on server:", msg);
-    } else if (msg.includes("captured_url_missing")) {
+    if (msg.includes("captured_url_missing")) {
       console.warn("No se pudo obtener la URL capturada de la pestana.");
+    } else if (msg.includes("csrf_token_expired_419")) {
+      console.warn("Source upload failed with 419 (Page Expired). La sesion existe pero la ruta requiere CSRF; el backend debe excluir /hemeroteca/sources del middleware CSRF o aceptar este flujo.");
+    } else if (msg.includes("auth_required_401") || msg.includes("auth_required_403")) {
+      console.warn("Source upload failed: sesion no valida en el dominio del backend. Inicia sesion en ese dominio y vuelve a intentar.");
+    } else if (msg.includes("draft_response_missing_openUrl_or_draftToken")) {
+      console.warn("Draft response is missing openUrl or draftToken. Payload:", msg);
+    } else if (msg.includes("chrome_scripting_unavailable")) {
+      console.warn("chrome.scripting is unavailable. Reload the extension after granting the scripting permission.");
     } else {
-      console.warn("Draft upload failed:", msg);
+      console.warn("Source upload failed:", msg);
     }
   } finally {
     uploadInProgress.delete(collId);

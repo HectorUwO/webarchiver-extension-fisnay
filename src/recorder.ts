@@ -108,6 +108,11 @@ class Recorder {
     // @ts-expect-error - TS2339 - Property 'historyMap' does not exist on type 'Recorder'.
     this.historyMap = {};
 
+    // @ts-expect-error - TS2339 - Property 'savedPageUrlKeys' does not exist on type 'Recorder'.
+    this.savedPageUrlKeys = new Set();
+    // @ts-expect-error - TS2339 - Property 'pageIdUrlKeyMap' does not exist on type 'Recorder'.
+    this.pageIdUrlKeyMap = {};
+
     // @ts-expect-error - TS2339 - Property '_promises' does not exist on type 'Recorder'.
     this._promises = {};
 
@@ -1127,6 +1132,21 @@ class Recorder {
 
     currPage.finished = finished;
 
+    const pageKey = this.normalizePageUrl(currPage.url);
+    // @ts-expect-error - TS2339 - Property 'pageIdUrlKeyMap' does not exist on type 'Recorder'.
+    const existingKey = this.pageIdUrlKeyMap[currPage.id];
+
+    if (!existingKey && pageKey) {
+      // @ts-expect-error - TS2339 - Property 'savedPageUrlKeys' does not exist on type 'Recorder'.
+      if (this.savedPageUrlKeys.has(pageKey)) {
+        return;
+      }
+      // @ts-expect-error - TS2339 - Property 'savedPageUrlKeys' does not exist on type 'Recorder'.
+      this.savedPageUrlKeys.add(pageKey);
+      // @ts-expect-error - TS2339 - Property 'pageIdUrlKeyMap' does not exist on type 'Recorder'.
+      this.pageIdUrlKeyMap[currPage.id] = pageKey;
+    }
+
     // @ts-expect-error - TS2339 - Property '_doAddPage' does not exist on type 'Recorder'.
     const res = this._doAddPage(currPage);
     // @ts-expect-error - TS2339 - Property '_cachePageInfo' does not exist on type 'Recorder'.
@@ -1243,6 +1263,21 @@ class Recorder {
       return true;
     }
     return false;
+  }
+
+  // @ts-expect-error - TS7006 - Parameter 'url' implicitly has an 'any' type.
+  normalizePageUrl(url) {
+    if (!url) {
+      return "";
+    }
+
+    try {
+      const parsed = new URL(url);
+      parsed.hash = "";
+      return parsed.href;
+    } catch (_e) {
+      return String(url);
+    }
   }
 
   // @ts-expect-error - TS7006 - Parameter 'url' implicitly has an 'any' type. | TS7006 - Parameter 'mime' implicitly has an 'any' type.

@@ -5,6 +5,7 @@
   "permissions": [
     "debugger",
     "contextMenus",
+    "scripting",
     "tabs",
     "activeTab",
     "storage",

@@ -1,6 +1,6 @@
 <h1>
 <div align="center">
-<img alt="LogoFis" src="src/assets/brand/fiscalia-icon-with-brand.png" width="90%">
+<img alt="LogoFis" src="src/assets/brand/fiscalia-icon-with-brand.png" width="50%">
 </div>
 </h1>
 

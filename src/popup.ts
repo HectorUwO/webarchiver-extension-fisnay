@@ -75,6 +75,17 @@ class RecPopup extends LitElement {
     this.uploadProgress = 0;
     // @ts-expect-error - TS2339 - Property 'uploadMessage' does not exist on type 'RecPopup'.
     this.uploadMessage = "";
+    // @ts-expect-error - TS2339 - Property 'uploadError' does not exist on type 'RecPopup'.
+    this.uploadError = false;
+    // @ts-expect-error - TS2339 - Property 'uploadErrorMessage' does not exist on type 'RecPopup'.
+    this.uploadErrorMessage = "";
+
+    // @ts-expect-error - TS2339 - Property 'serverUrl' does not exist on type 'RecPopup'.
+    this.serverUrl = "";
+    // @ts-expect-error - TS2339 - Property 'showServerSettings' does not exist on type 'RecPopup'.
+    this.showServerSettings = false;
+    // @ts-expect-error - TS2339 - Property 'uploadSourceTabId' does not exist on type 'RecPopup'.
+    this.uploadSourceTabId = 0;
   }
 
   static get properties() {
@@ -90,6 +101,12 @@ class RecPopup extends LitElement {
       uploadActive: { type: Boolean },
       uploadProgress: { type: Number },
       uploadMessage: { type: String },
+      uploadError: { type: Boolean },
+      uploadErrorMessage: { type: String },
+      uploadSourceTabId: { type: Number },
+
+      serverUrl: { type: String },
+      showServerSettings: { type: Boolean },
 
       replayUrl: { type: String },
       pageUrl: { type: String },
@@ -138,6 +155,9 @@ class RecPopup extends LitElement {
     this.port.onMessage.addListener((message) => {
       this.onMessage(message);
     });
+
+    // @ts-expect-error - TS2339 - Property 'port' does not exist on type 'RecPopup'.
+    this.port.postMessage({ type: "getApiBaseUrl" });
   }
 
   // @ts-expect-error - TS7006 - Parameter 'message' implicitly has an 'any' type.
@@ -180,12 +200,18 @@ class RecPopup extends LitElement {
         this.failureMsg = message.failureMsg;
         // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
         if (this.recording) {
-          // @ts-expect-error - TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'.
-          this.uploadActive = false;
-          // @ts-expect-error - TS2339 - Property 'uploadProgress' does not exist on type 'RecPopup'.
-          this.uploadProgress = 0;
-          // @ts-expect-error - TS2339 - Property 'uploadMessage' does not exist on type 'RecPopup'.
-          this.uploadMessage = "";
+          // Only clear upload state if this status update is for the same tab
+          // that owns the upload; otherwise we'd wipe a cross-tab upload display.
+          // @ts-expect-error - TS2339 - Property 'uploadSourceTabId' does not exist on type 'RecPopup'. | TS2339 - Property 'tabId' does not exist on type 'RecPopup'.
+          const uploadIsThisTab = !this.uploadSourceTabId || this.uploadSourceTabId === this.tabId;
+          if (uploadIsThisTab) {
+            // @ts-expect-error - TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'.
+            this.uploadActive = false;
+            // @ts-expect-error - TS2339 - Property 'uploadProgress' does not exist on type 'RecPopup'.
+            this.uploadProgress = 0;
+            // @ts-expect-error - TS2339 - Property 'uploadMessage' does not exist on type 'RecPopup'.
+            this.uploadMessage = "";
+          }
         }
         // @ts-expect-error - TS2339 - Property 'collId' does not exist on type 'RecPopup'.
         if (this.collId !== message.collId) {
@@ -206,11 +232,30 @@ class RecPopup extends LitElement {
         this.uploadProgress = Math.max(0, Math.min(100, message.progress || 0));
         // @ts-expect-error - TS2339 - Property 'uploadMessage' does not exist on type 'RecPopup'.
         this.uploadMessage = message.text || "Subiendo archivo...";
+        // Track which tab owns this upload so we don't accidentally clear it.
+        if (!message.done && message.tabId) {
+          // @ts-expect-error - TS2339 - Property 'uploadSourceTabId' does not exist on type 'RecPopup'.
+          this.uploadSourceTabId = message.tabId;
+        }
 
         if (message.done) {
           // @ts-expect-error - TS2339 - Property 'waitingForStop' does not exist on type 'RecPopup'.
           this.waitingForStop = false;
+          if (message.error) {
+            // @ts-expect-error - TS2339 - Property 'uploadError' does not exist on type 'RecPopup'.
+            this.uploadError = true;
+            // @ts-expect-error - TS2339 - Property 'uploadErrorMessage' does not exist on type 'RecPopup'.
+            this.uploadErrorMessage = message.text || "Error al subir el archivo al servidor.";
+          }
+          // @ts-expect-error - TS2339 - Property 'uploadSourceTabId' does not exist on type 'RecPopup'.
+          this.uploadSourceTabId = 0;
         }
+        break;
+      }
+
+      case "apiBaseUrl": {
+        // @ts-expect-error - TS2339 - Property 'serverUrl' does not exist on type 'RecPopup'.
+        this.serverUrl = typeof message.url === "string" ? message.url : "";
         break;
       }
 
@@ -250,8 +295,7 @@ class RecPopup extends LitElement {
     }
     // @ts-expect-error - TS2339 - Property 'collections' does not exist on type 'RecPopup'.
     for (const coll of this.collections) {
-      // @ts-expect-error - TS2339 - Property 'collId' does not exist on type 'RecPopup'.
-      if (coll.id === this.collId) {
+      if (coll.id === match) {
         return coll.title;
       }
     }
@@ -663,14 +707,136 @@ class RecPopup extends LitElement {
         font-size: 0.72rem;
         color: #64748b;
       }
+
+      .upload-error-banner {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 8px 10px;
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        border-radius: 8px;
+      }
+
+      .upload-error-title {
+        font-size: 0.78rem;
+        font-weight: 700;
+        color: #991b1b;
+      }
+
+      .upload-error-msg {
+        font-size: 0.75rem;
+        color: #7f1d1d;
+        line-height: 1.4;
+      }
+
+      .upload-error-dismiss {
+        align-self: flex-end;
+        margin-top: 2px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #991b1b;
+        cursor: pointer;
+        background: none;
+        border: none;
+        padding: 0;
+        text-decoration: underline;
+      }
+
+      .server-settings-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 8px 10px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        margin-top: 8px;
+      }
+
+      .server-settings-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #475569;
+      }
+
+      .server-settings-row {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+
+      .server-settings-input {
+        flex: 1;
+        font-size: 0.78rem;
+        padding: 4px 8px;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        min-width: 0;
+      }
+
+      .server-settings-btn {
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 4px 10px;
+        border: 1px solid #94a3b8;
+        border-radius: 6px;
+        background: #fff;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .server-settings-btn:hover {
+        background: #f1f5f9;
+      }
+
+      .gear-btn {
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: #94a3b8;
+        padding: 2px 4px;
+        border-radius: 4px;
+        font-size: 0.9rem;
+        line-height: 1;
+      }
+
+      .gear-btn:hover {
+        color: #475569;
+        background: #f1f5f9;
+      }
     `);
   }
 
   renderStatus() {
+    // @ts-expect-error - TS2339 - Property 'uploadError' does not exist on type 'RecPopup'.
+    if (this.uploadError) {
+      return html`
+        <div class="upload-error-banner">
+          <span class="upload-error-title">⚠ Error al subir</span>
+          <span class="upload-error-msg">${
+            // @ts-expect-error - TS2339 - Property 'uploadErrorMessage' does not exist on type 'RecPopup'.
+            this.uploadErrorMessage
+          }</span>
+          <button class="upload-error-dismiss" @click="${() => {
+            // @ts-expect-error - TS2339 - Property 'uploadError' does not exist on type 'RecPopup'.
+            this.uploadError = false;
+            // @ts-expect-error - TS2339 - Property 'uploadErrorMessage' does not exist on type 'RecPopup'.
+            this.uploadErrorMessage = "";
+          }}">Cerrar</button>
+        </div>
+      `;
+    }
+
     // @ts-expect-error - TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'.
     if (this.uploadActive) {
+      // @ts-expect-error - TS2339 - Property 'uploadSourceTabId' does not exist on type 'RecPopup'. | TS2339 - Property 'tabId' does not exist on type 'RecPopup'.
+      const isOtherTab = this.uploadSourceTabId && this.uploadSourceTabId !== this.tabId;
       return html`
         <div class="upload-wrap">
+          ${isOtherTab
+            ? html`<span class="upload-text" style="color:#64748b;font-style:italic;">Subida en curso en otra pestaña…</span>`
+            : html``}
           <span class="upload-text"
             >${
               // @ts-expect-error - TS2339 - Property 'uploadMessage' does not exist on type 'RecPopup'.
@@ -915,10 +1081,55 @@ class RecPopup extends LitElement {
             <div class="brand-title">Hemeroteca</div>
             <div class="brand-subtitle">Extensión de Archivado Digital</div>
           </div>
-          <div class="brand-logo-wrap" title="Fiscalia">
-            <wr-icon class="brand-logo" size="38px" .src="${fiscaliaLogo}"></wr-icon>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <button
+              class="gear-btn"
+              title="Configurar URL del servidor"
+              @click="${() => {
+                // @ts-expect-error - TS2339 - Property 'showServerSettings' does not exist on type 'RecPopup'.
+                this.showServerSettings = !this.showServerSettings;
+              }}"
+            >&#9881;</button>
+            <div class="brand-logo-wrap" title="Fiscalia">
+              <wr-icon class="brand-logo" size="38px" .src="${fiscaliaLogo}"></wr-icon>
+            </div>
           </div>
         </div>
+
+        ${
+          // @ts-expect-error - TS2339 - Property 'showServerSettings' does not exist on type 'RecPopup'.
+          this.showServerSettings
+            ? html`
+              <div class="server-settings-wrap">
+                <span class="server-settings-label">URL del servidor</span>
+                <div class="server-settings-row">
+                  <input
+                    class="server-settings-input"
+                    id="server-url-input"
+                    type="url"
+                    placeholder="http://localhost:8000"
+                    .value="${
+                      // @ts-expect-error - TS2339 - Property 'serverUrl' does not exist on type 'RecPopup'.
+                      this.serverUrl
+                    }"
+                  />
+                  <button
+                    class="server-settings-btn"
+                    @click="${() => {
+                      const input = this.renderRoot.querySelector("#server-url-input") as HTMLInputElement | null;
+                      const val = input?.value?.trim() ?? "";
+                      if (val && /^https?:\/\/.+/.test(val)) {
+                        this.sendMessage({ type: "setApiBaseUrl", url: val });
+                        // @ts-expect-error - TS2339 - Property 'showServerSettings' does not exist on type 'RecPopup'.
+                        this.showServerSettings = false;
+                      }
+                    }}"
+                  >Guardar</button>
+                </div>
+              </div>
+            `
+            : html``
+        }
 
         <div class="container">
           <div class="status-row">
@@ -1039,6 +1250,10 @@ class RecPopup extends LitElement {
     this.uploadProgress = 0;
     // @ts-expect-error - TS2339 - Property 'uploadMessage' does not exist on type 'RecPopup'.
     this.uploadMessage = "";
+    // @ts-expect-error - TS2339 - Property 'uploadError' does not exist on type 'RecPopup'.
+    this.uploadError = false;
+    // @ts-expect-error - TS2339 - Property 'uploadErrorMessage' does not exist on type 'RecPopup'.
+    this.uploadErrorMessage = "";
 
     this.sendMessage({
       type: "startRecording",

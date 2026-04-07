@@ -1,103 +1,73 @@
-<h1>
-    <div align="center">
-        <img alt="ArchiveWebpage" src="src/assets/brand/archivewebpage-lockup-color-dynamic.svg" width="90%">
-    </div>
-</h1>
+\<h1\>
+\<div align="center"\>
+\<img alt="ArchiveWebpage" src="src/assets/brand/archivewebpage-lockup-color-dynamic.svg" width="90%"\>
+\</div\>
+\</h1\>
 
-ArchiveWeb.page is a JavaScript based application for interactive, high-fidelity web archiving that runs directly in the browser. The system can be used as a Chrome/Chromium based browser extension and also as a standalone Electron app.
+ArchiveWeb.page es una aplicación basada en JavaScript para el archivo web interactivo y de alta fidelidad que se ejecuta directamente en el navegador. El sistema puede usarse como una extensión de navegador basada en Chrome/Chromium.
 
-The system creates, stores, and replays high-fidelity web archives stored directly in the browser's storage (via IndexedDB).
+El sistema crea, almacena y reproduce archivos web de alta fidelidad guardados directamente en el almacenamiento del navegador (a través de IndexedDB).
 
-For more detailed info on how to use the extension and standalone app, see the [ArchiveWeb.page User Guide](https://archiveweb.page/guide).
+Para obtener información más detallada sobre cómo usar la extensión, consulta la [Guía de usuario de ArchiveWeb.page](https://archiveweb.page/guide).
 
-The browser extension is available on the [Chrome Web Store](https://chrome.google.com/webstore/detail/webrecorder/fpeoodllldobpkbkabpblcfaogecpndd).
+La extensión para el navegador está disponible en la [Chrome Web Store](https://chrome.google.com/webstore/detail/webrecorder/fpeoodllldobpkbkabpblcfaogecpndd).
 
-Downloads for the desktop are are available on the [GitHub Releases page](https://github.com/webrecorder/archiveweb.page/releases).
+## Arquitectura
 
-## Architecture
+La extensión hace uso del protocolo de depuración de Chrome para capturar y guardar el tráfico de red, y extiende la interfaz de usuario de [ReplayWeb.page](https://github.com/webrecorder/replayweb.page) y el sistema de service worker [wabac.js](https://github.com/webrecorder/wabac.js) para la reproducción y el almacenamiento.
 
-The extension makes use of the Chrome debugging protocol to capture and save network traffic, and extends the [ReplayWeb.page](https://github.com/webrecorder/replayweb.page) UI and the [wabac.js](https://github.com/webrecorder/wabac.js) service worker system for replay and storage.
+## Desarrollo
 
-## Development
+### Requisitos previos
 
-The Chromium extension and Electron app are built from the same source code for ease of development.
+  - Node \>=12
+  - Yarn Classic (v1)
 
-### Prerequisites
+### Instalación
 
-- Node >=12
-- Yarn Classic (v1)
+Para compilar la extensión localmente para el desarrollo, haz lo siguiente:
 
-### Installation
+1.  Clona este repositorio:
+    ```sh
+    git clone https://github.com/webrecorder/archiveweb.page.git
+    ```
+2.  Cambia al directorio de trabajo:
+    ```sh
+    cd archiveweb.page
+    ```
+3.  Instala las dependencias:
+    ```sh
+    yarn install
+    ```
+4.  Crea la compilación de desarrollo (*build*):
+    ```sh
+    yarn build-dev
+    ```
 
-To build the extension or Electron app locally for development, do the following:
+La compilación de desarrollo ahora se puede usar para desarrollar la extensión.
 
-1. Clone this repo:
-   ```sh
-   git clone https://github.com/webrecorder/archiveweb.page.git
-   ```
-2. Change the working directory:
-   ```sh
-   cd archiveweb.page
-   ```
-3. Install dependencies:
-   ```sh
-   yarn install
-   ```
-4. Make development build:
-   ```sh
-   yarn build-dev
-   ```
+### Desarrollo de la extensión para Chromium
 
-The development build can now be used to develop the extension or Electron app.
+Para instalar la extensión localmente, carga la compilación de desarrollo como una extensión sin empaquetar:
 
-### Developing the Chromium extension
+1.  Abre la página de Extensiones de Chrome ([chrome://extensions](https://www.google.com/search?q=chrome://extensions)).
 
-To install the extension locally, load the development build as an unpacked extension:
+2.  Elige 'Cargar descomprimida' (*Load Unpacked Extension*) y selecciona el directorio `./dist/ext` en tu copia local de este repositorio.
 
-1. Open the Chrome Extensions page ([chrome://extensions](chrome://extensions)).
+3.  Haz clic en el icono de la extensión para mostrar la ventana emergente de la extensión, comenzar a archivar, etc...
 
-2. Choose 'Load Unpacked Extension' and point to the `./dist/ext` directory in your local copy of this repo.
+#### Actualizar la extensión tras cambios en el código
 
-3. Click the extension icon to show the extension popup, start archiving, etc...
-
-#### Update extension on code changes
-
-To watch source code files and recompile the development build on change, run:
+Para observar (*watch*) los archivos de código fuente y recompilar automáticamente la versión de desarrollo al detectar cambios, ejecuta:
 
 ```sh
 yarn run start-ext
 ```
 
-Now, saving changes to source will automatically rebuild the `dist/ext` directory.
+Ahora, al guardar los cambios en el código fuente, se reconstruirá automáticamente el directorio `dist/ext`.
 
-After making changes, the extension still needs to be reloaded in the browser.
+Después de realizar cambios, aún es necesario recargar la extensión en el navegador.
 
-1. From the Chrome extensions page, click the reload button to load the latest version.
+1.  Desde la página de extensiones de Chrome, haz clic en el botón de recargar para cargar la última versión.
 
-2. Click the extension icon to show the extension popup, start recording, etc... The dev build of the extension will be a different color from the production version.
-
-### Developing the Electron app
-
-To start the Electron app using development build:
-
-```sh
-yarn run start-electron
-```
-
-The Electron app will open recording in a new window. It is is designed to support Flash, better support for IPFS sharing.
-
-#### Update app on change
-
-Currently, the dev workflow for the Electron app does not support automatically rebuilding on file changes.
-
-After making changes, rerun `yarn run build-dev` and `yarn run start-electron` to view your changes in the app.
-
-## Standalone Build
-
-To create a platform-specific binary, run:
-
-```sh
-yarn run pack
-```
-
-The standalone app will then be available in the `./dist/` directory.
+2.  Haz clic en el icono de la extensión para mostrar la ventana emergente, comenzar a grabar, etc. La versión de desarrollo de la extensión tendrá un color diferente al de la versión de producción.

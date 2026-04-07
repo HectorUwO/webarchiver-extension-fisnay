@@ -1,8 +1,8 @@
-\<h1\>
-\<div align="center"\>
-\<img alt="ArchiveWebpage" src="src/assets/brand/archivewebpage-lockup-color-dynamic.svg" width="90%"\>
-\</div\>
-\</h1\>
+<h1>
+<div align="center"\>
+<img alt="LogoFis" src="src/assets/brand/fiscalia-icon-with-brand.png" width="90%"\>
+</div>
+</h1>
 
 ArchiveWeb.page es una aplicación basada en JavaScript para el archivo web interactivo y de alta fidelidad que se ejecuta directamente en el navegador. El sistema puede usarse como una extensión de navegador basada en Chrome/Chromium.
 

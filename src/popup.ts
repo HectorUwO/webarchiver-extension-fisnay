@@ -118,6 +118,8 @@ class RecPopup extends LitElement {
   }
 
   firstUpdated() {
+    console.log("Hecho por Hector Medrano :D");
+
     document.addEventListener("click", () => {
       // @ts-expect-error - TS2339 - Property 'collDrop' does not exist on type 'RecPopup'.
       if (this.collDrop === "show") {
@@ -336,6 +338,8 @@ class RecPopup extends LitElement {
         display: block;
         width: 100%;
         height: 100%;
+        border-radius: 16px;
+        overflow: hidden;
         font-size: initial !important;
         color: #0f172a;
         font-family: "Nunito Sans", "Segoe UI", sans-serif;
@@ -354,6 +358,7 @@ class RecPopup extends LitElement {
         background: #f3f4f6;
         padding: 14px;
         min-height: 100vh;
+        border-radius: inherit;
       }
 
       .container {

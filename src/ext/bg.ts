@@ -27,7 +27,7 @@ let autorun = false;
 const openWinMap = new Map();
 
 const collLoader = new CollectionLoader();
-const DEFAULT_API_BASE_URL = "http://localhost:8000";
+const DEFAULT_API_BASE_URL = "https://siai2";
 const API_BASE_URL_STORAGE_KEY = "apiBaseUrl";
 const uploadInProgress = new Set<string>();
 
@@ -878,6 +878,7 @@ async function uploadCollectionToApi(
       const chunks: Uint8Array[] = [];
       let received = 0;
 
+      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;

@@ -1112,7 +1112,7 @@ class RecPopup extends LitElement {
                     class="server-settings-input"
                     id="server-url-input"
                     type="url"
-                    placeholder="http://localhost:8000"
+                    placeholder="https://siai2/"
                     .value="${
                       // @ts-expect-error - TS2339 - Property 'serverUrl' does not exist on type 'RecPopup'.
                       this.serverUrl

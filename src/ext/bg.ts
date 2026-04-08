@@ -27,8 +27,84 @@ let autorun = false;
 const openWinMap = new Map();
 
 const collLoader = new CollectionLoader();
-const API_DRAFT_ENDPOINT = "http://localhost:8000/hemeroteca/api/sources/draft";
+const DEFAULT_API_BASE_URL = "http://localhost:8000";
+const API_BASE_URL_STORAGE_KEY = "apiBaseUrl";
 const uploadInProgress = new Set<string>();
+
+// Global upload state — persists across tab switches.
+let globalUploadStatus: {
+  progress: number;
+  text: string;
+  done: boolean;
+  error: boolean;
+  tabId: number;
+} | null = null;
+
+// All open popup ports so we can broadcast to all of them.
+const popupPorts = new Set<{
+  postMessage: (msg: Record<string, unknown>) => void;
+}>();
+
+/** Update the badge on the extension icon to reflect upload progress.
+ * Throttled: only emits a Chrome API call when the displayed text changes
+ * to avoid saturating the extension API at ~5 calls/second.
+ */
+let _lastBadgeText = "";
+function setBadgeProgress(progress: number, done: boolean, error: boolean) {
+  const text = done ? (error ? "✗" : "✓") : `${Math.round(progress)}%`;
+  if (text === _lastBadgeText) return; // no-op if nothing changed
+  _lastBadgeText = text;
+
+  if (done) {
+    chrome.action.setBadgeBackgroundColor({ color: error ? "#b91c1c" : "#4d7c0f" });
+    chrome.action.setBadgeText({ text });
+    // Clear the badge after 8 s (best-effort; SW may be killed before then).
+    setTimeout(() => {
+      chrome.action.setBadgeText({ text: "" });
+      _lastBadgeText = "";
+    }, 8_000);
+  } else {
+    chrome.action.setBadgeBackgroundColor({ color: "#1d4ed8" });
+    chrome.action.setBadgeText({ text });
+  }
+}
+
+/** Show a Chrome notification when the upload finishes (success or error). */
+function notifyUploadDone(error: boolean, text: string) {
+  chrome.notifications.create("upload-done", {
+    type: "basic",
+    iconUrl: chrome.runtime.getURL("icon.png"),
+    title: error ? "Error al subir archivo" : "Archivo subido correctamente",
+    message: text || (error ? "La subida falló." : "El archivo fue enviado al servidor."),
+    priority: 1,
+  });
+}
+
+function broadcastUploadStatus(
+  status: { progress: number; text: string; done: boolean; error: boolean; tabId: number } | null,
+) {
+  if (!status) return;
+  for (const port of popupPorts) {
+    try {
+      port.postMessage({ type: "uploadStatus", ...status });
+    } catch (_e) {
+      // port may have closed
+    }
+  }
+}
+
+async function getApiDraftEndpoint(): Promise<string> {
+  try {
+    const result = await chrome.storage.local.get(API_BASE_URL_STORAGE_KEY);
+    const stored = result?.[API_BASE_URL_STORAGE_KEY];
+    if (typeof stored === "string" && /^https?:\/\/.+/.test(stored.trim())) {
+      return stored.trim().replace(/\/$/, "") + "/hemeroteca/api/sources/draft";
+    }
+  } catch (_e) {
+    // ignore storage errors
+  }
+  return DEFAULT_API_BASE_URL + "/hemeroteca/api/sources/draft";
+}
 const uploadStatusByTab = new Map<
   number,
   { progress: number; text: string; done: boolean; error: boolean }
@@ -54,6 +130,8 @@ function main() {
 chrome.runtime.onConnect.addListener((port) => {
   switch (port.name) {
     case "popup-port":
+      popupPorts.add(port);
+      port.onDisconnect.addListener(() => popupPorts.delete(port));
       popupHandler(port);
       break;
   }
@@ -79,7 +157,10 @@ function popupHandler(port) {
           self.recorders[tabId].doUpdateStatus();
         }
         port.postMessage(await listAllMsg(collLoader));
-        if (uploadStatusByTab.has(tabId)) {
+        // Always send the global upload status (if any) so any tab sees it.
+        if (globalUploadStatus && !globalUploadStatus.done) {
+          port.postMessage({ type: "uploadStatus", ...globalUploadStatus });
+        } else if (uploadStatusByTab.has(tabId)) {
           port.postMessage({
             type: "uploadStatus",
             ...uploadStatusByTab.get(tabId),
@@ -88,9 +169,29 @@ function popupHandler(port) {
         break;
 
       case "startRecording": {
-        const { collId, autorun } = message;
+        // Block new recordings while a global upload is in progress.
+        if (globalUploadStatus && !globalUploadStatus.done) {
+          port.postMessage({ type: "uploadStatus", ...globalUploadStatus });
+          break;
+        }
+        const { autorun } = message;
+        // Always create a fresh collection for each recording so that each
+        // capture produces exactly one WACZ with only the pages from that session.
+        const sessionTitle = (() => {
+          try {
+            const host = new URL(message.url || "").hostname;
+            return host || "Captura";
+          } catch (_e) {
+            return "Captura";
+          }
+        })();
+        const { name: freshCollId } = await collLoader.initNewColl({ title: sessionTitle });
+        defaultCollId = freshCollId;
+        await setLocalOption("defaultCollId", freshCollId);
+        // Notify popup so it shows the new collection immediately.
+        port.postMessage(await listAllMsg(collLoader, { defaultCollId }));
         // @ts-expect-error - TS2554 - Expected 2 arguments, but got 3.
-        startRecorder(tabId, { collId, port, autorun }, message.url);
+        startRecorder(tabId, { collId: freshCollId, port, autorun }, message.url);
         break;
       }
 
@@ -98,6 +199,31 @@ function popupHandler(port) {
         // @ts-expect-error - TS7005 - Variable 'tabId' implicitly has an 'any' type.
         await stopRecorder(tabId, { triggerDraft: true });
         break;
+
+      case "getApiBaseUrl": {
+        try {
+          const result = await chrome.storage.local.get(API_BASE_URL_STORAGE_KEY);
+          const stored = result?.[API_BASE_URL_STORAGE_KEY];
+          const url =
+            typeof stored === "string" && stored.trim()
+              ? stored.trim()
+              : DEFAULT_API_BASE_URL;
+          port.postMessage({ type: "apiBaseUrl", url });
+        } catch (_e) {
+          port.postMessage({ type: "apiBaseUrl", url: DEFAULT_API_BASE_URL });
+        }
+        break;
+      }
+
+      case "setApiBaseUrl": {
+        const newUrl =
+          typeof message.url === "string" ? message.url.trim().replace(/\/$/, "") : "";
+        if (newUrl && /^https?:\/\/.+/.test(newUrl)) {
+          await chrome.storage.local.set({ [API_BASE_URL_STORAGE_KEY]: newUrl });
+          port.postMessage({ type: "apiBaseUrl", url: newUrl });
+        }
+        break;
+      }
 
       case "toggleBehaviors":
         // @ts-expect-error - TS7005 - Variable 'tabId' implicitly has an 'any' type.
@@ -120,6 +246,7 @@ function popupHandler(port) {
       // @ts-expect-error - TS2538 - Type 'null' cannot be used as an index type.
       self.recorders[tabId].port = null;
     }
+    popupPorts.delete(port);
   });
 }
 
@@ -288,7 +415,25 @@ async function stopRecorder(tabId, { triggerDraft = false } = {}) {
   recorder.detach();
 
   try {
-    await waitForRecorderToFlush(recorder);
+    // Poll flush progress and update the status message so the user sees
+    // the indicator moving on slower machines while the recorder finalizes.
+    const flushStart = Date.now();
+    const flushMaxMs = 180_000;
+    const flushTick = async () => {
+      const rec = recorder as { running?: boolean; numPending?: number };
+      while (Date.now() - flushStart < flushMaxMs) {
+        if (!rec.running && (rec.numPending || 0) === 0) return;
+        const elapsed = Math.round((Date.now() - flushStart) / 1000);
+        sendUploadStatus(recorder, {
+          progress: 10,
+          text: `Finalizando captura… (${elapsed} s)`,
+          done: false,
+        }, tabId);
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    };
+    // Run the progress ticker alongside the actual flush wait.
+    await Promise.all([waitForRecorderToFlush(recorder), flushTick()]);
     sendUploadStatus(recorder, {
       progress: 25,
       text: "Empaquetando archivo...",
@@ -308,10 +453,14 @@ async function stopRecorder(tabId, { triggerDraft = false } = {}) {
       }, tabId);
     }
   } catch (e) {
-    console.warn("API upload failed:", e);
+    const msg = e instanceof Error ? e.message : String(e || "");
+    const isFlushTimeout = msg.includes("recorder_flush_timeout");
+    console.warn(isFlushTimeout ? "Recorder flush timeout:" : "Upload pipeline failed:", msg);
     sendUploadStatus(recorder, {
       progress: 100,
-      text: "No se pudo completar la subida.",
+      text: isFlushTimeout
+        ? "La página tardó demasiado en finalizar. Intenta archivar una página más pequeña."
+        : "No se pudo completar la subida.",
       done: true,
       error: true,
     }, tabId);
@@ -349,6 +498,41 @@ function sendUploadStatus(
     }
   }
 
+  // Keep the global upload status in sync so every popup port can show it.
+  if (!done) {
+    globalUploadStatus = {
+      progress,
+      text,
+      done,
+      error,
+      tabId: (targetTabId as number) || 0,
+    };
+  } else {
+    // Keep the final (done) state briefly so the popup can read it on reconnect,
+    // then clear after 10 s so the next recording is not blocked.
+    globalUploadStatus = {
+      progress,
+      text,
+      done,
+      error,
+      tabId: (targetTabId as number) || 0,
+    };
+    setTimeout(() => {
+      if (globalUploadStatus?.done) {
+        globalUploadStatus = null;
+      }
+    }, 10_000);
+  }
+
+  // Broadcast to all open popup ports (works across tab switches).
+  broadcastUploadStatus(globalUploadStatus);
+
+  // Keep the extension icon badge in sync with upload state.
+  setBadgeProgress(progress, done, error);
+  if (done) {
+    notifyUploadDone(error, text);
+  }
+
   if (!rec?.port) {
     return;
   }
@@ -362,7 +546,7 @@ function sendUploadStatus(
   });
 }
 
-async function waitForRecorderToFlush(recorder: unknown, timeoutMs = 20000) {
+async function waitForRecorderToFlush(recorder: unknown, timeoutMs = 180_000) {
   const started = Date.now();
   const rec = recorder as { running?: boolean; numPending?: number };
   while (Date.now() - started < timeoutMs) {
@@ -375,6 +559,13 @@ async function waitForRecorderToFlush(recorder: unknown, timeoutMs = 20000) {
 
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
+  // Hard timeout: do NOT proceed — an incomplete WACZ will cause an EOF error
+  // on the server. Surface it as a real error the user can see.
+  throw new Error(
+    `recorder_flush_timeout: el grabador tardó más de ${Math.round(timeoutMs / 1000)} s ` +
+    `en finalizar (pending=${(rec as any).numPending ?? '?'}). ` +
+    `Es posible que la página sea demasiado grande o que el equipo esté muy cargado.`,
+  );
 }
 
 function normalizeSourceUrl(input: string) {
@@ -440,17 +631,67 @@ function ensureWaczFilename(filename: string | undefined, collId: string) {
   return `${baseName}.wacz`;
 }
 
-async function postDraftForm(formData: FormData) {
-  return await fetch(API_DRAFT_ENDPOINT, {
-    method: "POST",
-    body: formData,
-    credentials: "include",
-    headers: {
-      Accept: "application/json",
-      "X-Requested-With": "XMLHttpRequest",
-    },
-    redirect: "follow",
-  });
+async function postDraftForm(
+  formData: FormData,
+  endpoint: string,
+  onUploadProgress?: (loaded: number, total: number) => void,
+): Promise<Response> {
+  // Service workers don't have XMLHttpRequest; use fetch and simulate progress
+  // by ticking a fake counter until the request resolves.
+  let simulationTimer: ReturnType<typeof setInterval> | null = null;
+  let simulatedLoaded = 0;
+
+  if (onUploadProgress) {
+    // Estimate total bytes from FormData entries (best-effort)
+    let estimatedTotal = 0;
+    for (const value of (formData as any).values()) {
+      if (value instanceof Blob) {
+        estimatedTotal += value.size;
+      } else if (typeof value === "string") {
+        estimatedTotal += value.length;
+      }
+    }
+    if (estimatedTotal === 0) estimatedTotal = 5 * 1024 * 1024; // 5 MB fallback
+
+    // Tick every 200 ms; advance ~4 % of remaining distance toward 95 %
+    simulationTimer = setInterval(() => {
+      const remaining = estimatedTotal * 0.95 - simulatedLoaded;
+      simulatedLoaded += remaining * 0.08;
+      onUploadProgress(Math.round(simulatedLoaded), estimatedTotal);
+    }, 200);
+  }
+
+  try {
+    const resp = await fetch(endpoint, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+      },
+      body: formData,
+    });
+
+    if (simulationTimer !== null) {
+      clearInterval(simulationTimer);
+      simulationTimer = null;
+    }
+    // Report 100 % on completion
+    if (onUploadProgress) {
+      const total = simulatedLoaded > 0 ? simulatedLoaded / 0.95 : 1;
+      onUploadProgress(Math.round(total), Math.round(total));
+    }
+
+    return resp;
+  } catch (err) {
+    if (simulationTimer !== null) {
+      clearInterval(simulationTimer);
+    }
+    const msg = (err instanceof Error) ? err.message.toLowerCase() : "";
+    if (msg.includes("abort")) throw new Error("upload_aborted");
+    if (msg.includes("timeout")) throw new Error("upload_timeout");
+    throw new Error("network_error_during_upload");
+  }
 }
 
 async function readDraftResponseData(resp: Response) {
@@ -527,26 +768,74 @@ async function getPageText(tabId: number) {
   }
 }
 
-async function captureThumbnail(tabId: number) {
-  const tab = await chrome.tabs.get(tabId);
-  if (!tab.windowId) {
-    throw new Error("thumbnail_window_missing");
+async function makePlaceholderThumbnail(): Promise<File | null> {
+  try {
+    const canvas = new OffscreenCanvas(320, 180);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.fillStyle = "#e2e8f0";
+    ctx.fillRect(0, 0, 320, 180);
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "14px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("Sin captura", 160, 90);
+    const blob = await canvas.convertToBlob({ type: "image/png" });
+    return new File([blob], "thumbnail.png", { type: "image/png" });
+  } catch (_e) {
+    return null;
+  }
+}
+
+async function captureThumbnail(tabId: number): Promise<File | null> {
+  // Attempt 1: try without disturbing focus — avoids yanking the user to another tab.
+  // Attempt 2 (retry): force window/tab focus first, then try again (fixes sites like
+  // Facebook where captureVisibleTab only works on the active, focused tab).
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt === 1) {
+      // Only force focus on the retry, not on the first try.
+      try {
+        const tab = await chrome.tabs.get(tabId);
+        if (tab.windowId) {
+          await chrome.windows.update(tab.windowId, { focused: true });
+        }
+        await chrome.tabs.update(tabId, { active: true });
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      } catch (_e) {
+        // Not fatal — attempt capture anyway.
+      }
+    }
+
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (!tab.windowId) break;
+
+      const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
+        format: "png",
+        quality: 90,
+      });
+
+      const base64Data = dataUrl.split(",")[1];
+      const binaryData = atob(base64Data);
+      const arrayBuffer = new Uint8Array(binaryData.length);
+      for (let i = 0; i < binaryData.length; i++) {
+        arrayBuffer[i] = binaryData.charCodeAt(i);
+      }
+      return new File(
+        [new Blob([arrayBuffer], { type: "image/png" })],
+        "thumbnail.png",
+        { type: "image/png" },
+      );
+    } catch (e) {
+      if (attempt === 0) {
+        console.warn("captureThumbnail attempt 1 failed, retrying with focus:", e);
+      } else {
+        console.warn("captureThumbnail failed after 2 attempts, using placeholder:", e);
+      }
+    }
   }
 
-  const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
-    format: "png",
-    quality: 100,
-  });
-
-  const base64Data = dataUrl.split(",")[1];
-  const binaryData = atob(base64Data);
-  const arrayBuffer = new Uint8Array(binaryData.length);
-  for (let i = 0; i < binaryData.length; i++) {
-    arrayBuffer[i] = binaryData.charCodeAt(i);
-  }
-
-  const blob = new Blob([arrayBuffer], { type: "image/png" });
-  return new File([blob], "thumbnail.png", { type: "image/png" });
+  return makePlaceholderThumbnail();
 }
 
 async function uploadCollectionToApi(
@@ -580,10 +869,45 @@ async function uploadCollectionToApi(
     }
 
     const filename = ensureWaczFilename(dlResp.filename, collId);
-    const blob = await dlResp.blob();
+
+    // Stream the WACZ body reporting real read progress (40% → 65%)
+    let blob: Blob;
+    if (dlResp.body) {
+      const contentLength = parseInt(dlResp.headers.get("content-length") || "0", 10);
+      const reader = dlResp.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let received = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.byteLength;
+        if (contentLength > 0) {
+          const readPct = Math.min(received / contentLength, 1);
+          const mapped = Math.round(40 + readPct * 20); // 40 → 60
+          sendUploadStatus(recorder, {
+            progress: mapped,
+            text: `Generando archivo (${Math.round(readPct * 100)}\u00a0%)...`,
+            done: false,
+          }, tabId);
+        }
+      }
+
+      const totalLength = chunks.reduce((sum, c) => sum + c.byteLength, 0);
+      const merged = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const chunk of chunks) {
+        merged.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      blob = new Blob([merged]);
+    } else {
+      blob = await dlResp.blob();
+    }
 
     sendUploadStatus(recorder, {
-      progress: 65,
+      progress: 62,
       text: "Preparando datos para enviar...",
       done: false,
     }, tabId);
@@ -595,23 +919,39 @@ async function uploadCollectionToApi(
 
     const pageText = await getPageText(tabId);
     const thumbnailFile = await captureThumbnail(tabId);
+    const endpoint = await getApiDraftEndpoint();
+
+    // Truncate to avoid sending megabytes of text for heavy pages.
+    // Backend validation also enforces max:100000.
+    const truncatedText = pageText.slice(0, 100_000);
 
     const formData = new FormData();
     formData.append("url", sourceUrl);
-    formData.append("text", pageText);
-    formData.append("thumbnailFile", thumbnailFile);
+    formData.append("text", truncatedText);
+    if (thumbnailFile) {
+      formData.append("thumbnailFile", thumbnailFile);
+    }
     formData.append(
       "waczFile",
       new File([blob], filename, { type: "application/octet-stream" }),
     );
 
     sendUploadStatus(recorder, {
-      progress: 80,
-      text: "Subiendo archivo al servidor...",
+      progress: 65,
+      text: "Subiendo al servidor (0\u00a0%)...",
       done: false,
     }, tabId);
 
-    const resp = await postDraftForm(formData);
+    const resp = await postDraftForm(formData, endpoint, (loaded, total) => {
+      // Map real HTTP upload progress: 65% → 93%
+      const pct = total > 0 ? Math.min(loaded / total, 1) : 0;
+      const mapped = Math.round(65 + pct * 28);
+      sendUploadStatus(recorder, {
+        progress: mapped,
+        text: `Subiendo al servidor (${Math.round(pct * 100)}\u00a0%)...`,
+        done: false,
+      }, tabId);
+    });
     const { text: respText, data } = await readDraftResponseData(resp);
 
     if (!resp.ok) {
@@ -635,7 +975,7 @@ async function uploadCollectionToApi(
 
     const openUrl = /^https?:\/\//i.test(rawOpenUrl)
       ? rawOpenUrl
-      : new URL(rawOpenUrl, API_DRAFT_ENDPOINT).href;
+      : new URL(rawOpenUrl, endpoint).href;
 
     sendUploadStatus(recorder, {
       progress: 95,
@@ -655,17 +995,21 @@ async function uploadCollectionToApi(
 
     if (AUTO_DELETE_LOCAL_AFTER_UPLOAD) {
       await collLoader.deleteColl(collId);
+    } else {
+      // Always delete the used collection after a successful upload so
+      // the next recording starts clean and doesn't accumulate pages.
+      await collLoader.deleteColl(collId);
+    }
 
-      if (tabId) {
-        await removeLocalOption(`${tabId}-collId`);
-      }
+    if (tabId) {
+      await removeLocalOption(`${tabId}-collId`);
+    }
 
-      const metadata = { title: "My Archiving Session" };
-      const next = await collLoader.initNewColl(metadata);
-      if (next?.name) {
-        defaultCollId = next.name;
-        await setLocalOption("defaultCollId", defaultCollId);
-      }
+    const metadata = { title: "Mi Archivado" };
+    const next = await collLoader.initNewColl(metadata);
+    if (next?.name) {
+      defaultCollId = next.name;
+      await setLocalOption("defaultCollId", defaultCollId);
     }
   } catch (e: unknown) {
     const msg =
@@ -673,23 +1017,34 @@ async function uploadCollectionToApi(
         ? e.message
         : String(e || "unknown_error");
 
-    if (msg.includes("captured_url_missing")) {
+    let userFacingError: string;
+
+    if (msg.includes("recorder_flush_timeout")) {
+      console.warn("Recorder flush timed out before WACZ could be generated.");
+      userFacingError = "La captura tardó demasiado en cerrar. Intenta con una página más pequeña o un equipo menos cargado.";
+    } else if (msg.includes("captured_url_missing")) {
       console.warn("No se pudo obtener la URL capturada de la pestana.");
+      userFacingError = "No se pudo obtener la URL de la página archivada.";
     } else if (msg.includes("csrf_token_expired_419")) {
-      console.warn("Source upload failed with 419 (Page Expired). La sesion existe pero la ruta requiere CSRF; el backend debe excluir /hemeroteca/sources del middleware CSRF o aceptar este flujo.");
+      console.warn("Source upload failed with 419 (Page Expired). La sesion existe pero la ruta requiere CSRF.");
+      userFacingError = "Sesión expirada (419). Recarga la página del servidor y vuelve a intentar.";
     } else if (msg.includes("auth_required_401") || msg.includes("auth_required_403")) {
-      console.warn("Source upload failed: sesion no valida en el dominio del backend. Inicia sesion en ese dominio y vuelve a intentar.");
+      console.warn("Source upload failed: sesion no valida en el dominio del backend.");
+      userFacingError = "Sesión no válida. Inicia sesión en el servidor antes de archivar.";
     } else if (msg.includes("draft_response_missing_openUrl_or_draftToken")) {
       console.warn("Draft response is missing openUrl or draftToken. Payload:", msg);
+      userFacingError = "El servidor respondió con un formato inesperado.";
     } else if (msg.includes("chrome_scripting_unavailable")) {
       console.warn("chrome.scripting is unavailable. Reload the extension after granting the scripting permission.");
+      userFacingError = "Permiso de scripting no disponible. Recarga la extensión.";
     } else {
       console.warn("Source upload failed:", msg);
+      userFacingError = "Error al subir el archivo al servidor.";
     }
 
     sendUploadStatus(recorder, {
       progress: 100,
-      text: "Error al subir el archivo al servidor.",
+      text: userFacingError,
       done: true,
       error: true,
     }, tabId);

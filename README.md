@@ -1,75 +1,138 @@
-<h1>
-  <div align="center">
-    <img alt="LogoFis" src="src/assets/brand/fiscalia-icon-with-brand.png" width="50%">
-  </div>
-</h1>
-
-# Extensión de Archivado Digital para el módulo de hemeroteca del SIAI (Sistema Integral de Análisis de Información)
-
 <div align="center">
-  <p>Esta es una aplicación basada en JavaScript para el archivo web interactivo y de alta fidelidad que se ejecuta directamente en el navegador. El sistema se usa como una extensión de navegador basada en Chrome/Chromium.</p>
-  <p>El sistema crea, almacena y reproduce archivos web de alta fidelidad guardados directamente en el almacenamiento del navegador (a través de IndexedDB).</p>
+  <img alt="LogoFis" src="src/assets/brand/fiscalia-icon-with-brand.png" width="50%">
 </div>
 
-Para obtener información más detallada sobre el funcionamiento base, consulta la [Guía de usuario de ArchiveWeb.page](https://archiveweb.page/guide).
+# Extensión de Archivado Digital (Hemeroteca SIAI)
 
-## Capturas de Pantalla
+[![Chrome/Chromium](https://img.shields.io/badge/Browser-Chrome%2FChromium-4285F4?logo=googlechrome&logoColor=white)](#)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D12-339933?logo=nodedotjs&logoColor=white)](#)
+[![Yarn Classic](https://img.shields.io/badge/Yarn-Classic%20v1-2C8EBB?logo=yarn&logoColor=white)](#)
 
-### 1. Pantalla de Inicio
-<div align="center">
-  <img alt="Inicio de la extensión" src="static/screenshots/extension-home.png" width="70%">
-</div>
+> Extensión para **Chrome/Chromium** orientada al módulo de hemeroteca del **SIAI (Sistema Integral de Análisis de Información)**.
+> Permite **capturar**, **almacenar** y **reproducir** archivos web de alta fidelidad directamente desde el navegador,
+> guardándolos en almacenamiento local del navegador (**IndexedDB**).
 
-### 2. Proceso de Archivado en Curso
-<div align="center">
-  <img alt="Archivado en curso" src="static/screenshots/extension-archiving.png" width="70%">
-</div>
+---
 
-### 3. Finalización y Guardado (Uploading)
-<div align="center">
-  <img alt="Finalización y guardado" src="static/screenshots/extension-uploading.png" width="70%">
-</div>
+## Tabla de contenidos
 
-## Arquitectura
+- [Información general](#información-general)
+- [Inicio rápido (desarrollo)](#inicio-rápido-desarrollo)
+- [Capturas de pantalla](#capturas-de-pantalla)
+- [Arquitectura](#arquitectura)
+- [Scripts disponibles](#scripts-disponibles)
+- [Resolución de problemas](#resolución-de-problemas)
+- [Créditos](#créditos)
 
-La extensión hace uso del protocolo de depuración de Chrome para capturar y guardar el tráfico de red, y extiende la interfaz de usuario de [ReplayWeb.page](https://github.com/webrecorder/replayweb.page) y el sistema de service worker [wabac.js](https://github.com/webrecorder/wabac.js) para la reproducción y el almacenamiento.
+## Información general
 
-## Desarrollo
+- **Base tecnológica:** deriva del proyecto **ArchiveWeb.page**.
+- **Guía funcional de referencia:** [ArchiveWeb.page User Guide](https://archiveweb.page/guide).
+
+---
+
+## Inicio rápido (desarrollo)
 
 ### Requisitos previos
 
-  - Node >=12
-  - Yarn Classic (v1)
+- **Node.js:** >= 12 (recomendado: LTS reciente).
+- **Yarn Classic (v1)**.
 
 ### Instalación
 
-Para compilar la extensión localmente para el desarrollo, haz lo siguiente:
+1. Clona este repositorio y entra al directorio:
 
-1.   Clona este repositorio:
-    ```sh
-    git clone [https://github.com/webrecorder/archiveweb.page.git](https://github.com/webrecorder/archiveweb.page.git)
-    ```
-2.   Cambia al directorio de trabajo:
-    ```sh
-    cd archiveweb.page
-    ```
-3.   Instala las dependencias:
-    ```sh
-    yarn install
-    ```
-4.   Crea la compilación de desarrollo (*build*):
-    ```sh
-    yarn build-dev
-    ```
+   ```sh
+   git clone <URL_DE_ESTE_REPOSITORIO>
+   cd webarchiver-extension-fisnay
+   ```
 
-La compilación de desarrollo ahora se puede usar para desarrollar la extensión.
+2. Instala dependencias:
 
-### Desarrollo de la extensión para Chromium
+   ```sh
+   yarn install
+   ```
 
-Para instalar la extensión localmente, carga la compilación de desarrollo como una extensión sin empaquetar:
+3. Compila en modo desarrollo:
 
-1.   Abre la página de Extensiones de Chrome ([chrome://extensions](https://www.google.com/search?q=chrome://extensions)).
+   ```sh
+   yarn build-dev
+   ```
 
-2.   Elige 'Cargar descomprimida' (*Load Unpacked Extension*) y selecciona el directorio `./dist/ext` en tu copia local de este repositorio.
+### Cargar la extensión en Chromium
 
-3.   Haz clic en el icono de la extensión para mostrar la ventana emergente de la extensión, comenzar a archivar, etc...
+1. Abre `chrome://extensions`.
+2. Activa **Modo desarrollador**.
+3. Selecciona **Cargar descomprimida** y elige la carpeta `./dist/ext`.
+
+Para desarrollo iterativo (watch):
+
+```sh
+yarn start-ext
+```
+
+---
+
+## Capturas de pantalla
+
+| 1) Pantalla de inicio | 2) Proceso de archivado en curso | 3) Finalización y guardado (Uploading) |
+| --- | --- | --- |
+| <img alt="Inicio de la extensión" src="static/screenshots/extension-home.png" width="100%"> | <img alt="Archivado en curso" src="static/screenshots/extension-archiving.png" width="100%"> | <img alt="Finalización y guardado" src="static/screenshots/extension-uploading.png" width="100%"> |
+
+---
+
+## Arquitectura
+
+La extensión hace uso del protocolo de depuración de Chrome para capturar y guardar tráfico de red, y extiende la interfaz de [ReplayWeb.page](https://github.com/webrecorder/replayweb.page) y el service worker [wabac.js](https://github.com/webrecorder/wabac.js) para reproducción y almacenamiento.
+
+---
+
+## Scripts disponibles
+
+| Script | Descripción |
+| --- | --- |
+| `yarn build-dev` | Build de desarrollo. |
+| `yarn start-ext` | Compilación en modo watch para iteración rápida. |
+| `yarn build` | Build de producción. |
+| `yarn lint` | Lint del proyecto. |
+| `yarn format` | Formato automático. |
+| `yarn dist` | Empaquetado para distribución. |
+
+---
+
+## Resolución de problemas
+
+### No se reflejan cambios en la extensión
+
+- Si usas `yarn start-ext`, recarga la extensión en `chrome://extensions`.
+- Recarga la extensión en `chrome://extensions`.
+- Recarga la página objetivo que estás archivando.
+
+### Error al cargar la extensión
+
+- Asegúrate de cargar exactamente `./dist/ext` (no `./dist`).
+- Ejecuta `yarn build-dev` nuevamente.
+
+### Inconsistencias de dependencias
+
+```sh
+rm -rf node_modules
+yarn install
+```
+
+En Windows (PowerShell):
+
+```powershell
+Remove-Item -Recurse -Force node_modules
+yarn install
+```
+
+---
+
+## Créditos
+
+Basado en el ecosistema de Webrecorder:
+
+- [ArchiveWeb.page](https://archiveweb.page/)
+- [ReplayWeb.page](https://github.com/webrecorder/replayweb.page)
+- [wabac.js](https://github.com/webrecorder/wabac.js)

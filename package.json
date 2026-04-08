@@ -9,7 +9,7 @@
     "url": "git+https://github.com/webrecorder/archiveweb.page.git"
   },
   "author": "Webrecorder Software",
-  "license": "AGPL-3.0-or-later",
+  "license": "UNLICENSED",
   "dependencies": {
     "@fortawesome/fontawesome-free": "^5.13.0",
     "@ipld/car": "^5.3.2",

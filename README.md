@@ -8,7 +8,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D12-339933?logo=nodedotjs&logoColor=white)](#)
 [![Yarn Classic](https://img.shields.io/badge/Yarn-Classic%20v1-2C8EBB?logo=yarn&logoColor=white)](#)
 
-> Extensión para **Chrome/Chromium** orientada al módulo de hemeroteca del **SIAI (Sistema Integral de Análisis de Información)**.
+> Extensión para **navegadores basados en Chromium** orientada al módulo de hemeroteca del **SIAI (Sistema Integral de Análisis de Información)**.
 > Permite **capturar**, **almacenar** y **reproducir** archivos web de alta fidelidad directamente desde el navegador,
 > guardándolos en almacenamiento local del navegador (**IndexedDB**).
 
@@ -17,6 +17,7 @@
 ## Tabla de contenidos
 
 - [Información general](#información-general)
+- [Navegadores compatibles](#navegadores-compatibles)
 - [Inicio rápido (desarrollo)](#inicio-rápido-desarrollo)
 - [Capturas de pantalla](#capturas-de-pantalla)
 - [Arquitectura](#arquitectura)
@@ -28,6 +29,20 @@
 
 - **Base tecnológica:** deriva del proyecto **ArchiveWeb.page**.
 - **Guía funcional de referencia:** [ArchiveWeb.page User Guide](https://archiveweb.page/guide).
+
+## Navegadores compatibles
+
+La extensión depende de **Manifest V3**, la API **`chrome.debugger`** y otras APIs de **Chrome Extensions**, por lo que su compatibilidad está orientada a navegadores **basados en Chromium**.
+
+| Navegador | Compatibilidad |
+| --- | --- |
+| ![Google Chrome](https://img.shields.io/badge/Google%20Chrome-4285F4?logo=googlechrome&logoColor=white) | Compatible |
+| ![Chromium](https://img.shields.io/badge/Chromium-4A8AF4?logo=chromium&logoColor=white) | Compatible |
+| ![Microsoft Edge](https://img.shields.io/badge/Microsoft%20Edge-0078D7?logo=microsoftedge&logoColor=white) | Compatible |
+| ![Brave](https://img.shields.io/badge/Brave-FB542B?logo=brave&logoColor=white) | Compatible |
+| ![Opera](https://img.shields.io/badge/Opera-FF1B2D?logo=opera&logoColor=white) | Compatible |
+
+> Nota: en navegadores no basados en Chromium, o en variantes que restrinjan el uso de `chrome.debugger`, la extensión puede no funcionar correctamente.
 
 ---
 

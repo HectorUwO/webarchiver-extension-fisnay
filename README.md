@@ -9,8 +9,7 @@
 [![Yarn Classic](https://img.shields.io/badge/Yarn-Classic%20v1-2C8EBB?logo=yarn&logoColor=white)](#)
 
 > Extensión para **navegadores basados en Chromium** orientada al módulo de hemeroteca del **SIAI (Sistema Integral de Análisis de Información)**.
-> Permite **capturar**, **almacenar** y **reproducir** archivos web de alta fidelidad directamente desde el navegador,
-> guardándolos en almacenamiento local del navegador (**IndexedDB**).
+> Permite **capturar**, **almacenar** y **reproducir** archivos web de alta fidelidad directamente desde el navegador.
 
 ---
 

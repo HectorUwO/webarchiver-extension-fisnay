@@ -27,9 +27,11 @@ let autorun = false;
 const openWinMap = new Map();
 
 const collLoader = new CollectionLoader();
-const DEFAULT_API_BASE_URL = "https://siai2";
+const DEFAULT_API_BASE_URL = "http://siaikevin.test";
 const API_BASE_URL_STORAGE_KEY = "apiBaseUrl";
+const API_EXTENSION_KEY_STORAGE_KEY = "apiExtensionKey";
 const uploadInProgress = new Set<string>();
+const PROTECTED_CAPTURE_HOSTS = new Set(["siaikevin.test", "www.siaikevin.test", "siai2"]);
 
 // Global upload state — persists across tab switches.
 let globalUploadStatus: {
@@ -98,12 +100,86 @@ async function getApiDraftEndpoint(): Promise<string> {
     const result = await chrome.storage.local.get(API_BASE_URL_STORAGE_KEY);
     const stored = result?.[API_BASE_URL_STORAGE_KEY];
     if (typeof stored === "string" && /^https?:\/\/.+/.test(stored.trim())) {
-      return stored.trim().replace(/\/$/, "") + "/hemeroteca/api/sources/draft";
+      return stored.trim().replace(/\/$/, "") + "/hemeroteca/ext/sources/draft";
     }
   } catch (_e) {
     // ignore storage errors
   }
-  return DEFAULT_API_BASE_URL + "/hemeroteca/api/sources/draft";
+  return DEFAULT_API_BASE_URL + "/hemeroteca/ext/sources/draft";
+}
+
+async function getApiExtensionKey(): Promise<string> {
+  try {
+    const result = await chrome.storage.local.get(API_EXTENSION_KEY_STORAGE_KEY);
+    const stored = result?.[API_EXTENSION_KEY_STORAGE_KEY];
+    if (typeof stored === "string") {
+      return stored.trim();
+    }
+  } catch (_e) {
+    // ignore storage errors
+  }
+
+  return "";
+}
+
+async function getApiBaseUrl(): Promise<string> {
+  try {
+    const result = await chrome.storage.local.get(API_BASE_URL_STORAGE_KEY);
+    const stored = result?.[API_BASE_URL_STORAGE_KEY];
+    if (typeof stored === "string" && /^https?:\/\/.+/.test(stored.trim())) {
+      return stored.trim().replace(/\/$/, "");
+    }
+  } catch (_e) {
+    // ignore storage errors
+  }
+
+  return DEFAULT_API_BASE_URL;
+}
+
+function getHostnameSafe(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch (_e) {
+    return "";
+  }
+}
+
+function toHttpUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.protocol = "http:";
+    return parsed.href;
+  } catch (_e) {
+    return url;
+  }
+}
+
+function looksLikeCertificateVerificationPage(status: number, bodyText: string): boolean {
+  if (![495, 496, 497, 499].includes(status)) {
+    return false;
+  }
+
+  const lowered = bodyText.toLowerCase();
+  return (
+    lowered.includes("problema de verificación del certificado") ||
+    lowered.includes("problema de verificacion del certificado") ||
+    lowered.includes("certificate verification") ||
+    lowered.includes("kaspersky")
+  );
+}
+
+function isProtectedCaptureUrl(targetUrl: string, apiBaseUrl: string): boolean {
+  const targetHost = getHostnameSafe(targetUrl);
+  if (!targetHost) {
+    return false;
+  }
+
+  if (PROTECTED_CAPTURE_HOSTS.has(targetHost)) {
+    return true;
+  }
+
+  const apiHost = getHostnameSafe(apiBaseUrl);
+  return apiHost !== "" && targetHost === apiHost;
 }
 const uploadStatusByTab = new Map<
   number,
@@ -143,15 +219,14 @@ function popupHandler(port) {
     return;
   }
 
-  // @ts-expect-error - TS7034 - Variable 'tabId' implicitly has type 'any' in some locations where its type cannot be determined.
-  let tabId = null;
+  let tabId: number | null = null;
 
   // @ts-expect-error - TS7006 - Parameter 'message' implicitly has an 'any' type.
   port.onMessage.addListener(async (message) => {
     switch (message.type) {
       case "startUpdates":
         tabId = message.tabId;
-        if (self.recorders[tabId]) {
+        if (tabId !== null && self.recorders[tabId]) {
           // @ts-expect-error - TS2339 - Property 'port' does not exist on type 'BrowserRecorder'.
           self.recorders[tabId].port = port;
           self.recorders[tabId].doUpdateStatus();
@@ -160,7 +235,7 @@ function popupHandler(port) {
         // Always send the global upload status (if any) so any tab sees it.
         if (globalUploadStatus && !globalUploadStatus.done) {
           port.postMessage({ type: "uploadStatus", ...globalUploadStatus });
-        } else if (uploadStatusByTab.has(tabId)) {
+        } else if (tabId !== null && uploadStatusByTab.has(tabId)) {
           port.postMessage({
             type: "uploadStatus",
             ...uploadStatusByTab.get(tabId),
@@ -169,6 +244,18 @@ function popupHandler(port) {
         break;
 
       case "startRecording": {
+        const apiBaseUrl = await getApiBaseUrl();
+        const recordingUrl = String(message.url || "");
+        if (isProtectedCaptureUrl(recordingUrl, apiBaseUrl)) {
+          sendUploadStatus(null, {
+            progress: 100,
+            text: "Por seguridad, no se permite archivar dentro del dominio de SIAI.",
+            done: true,
+            error: true,
+          }, tabId ?? undefined);
+          break;
+        }
+
         // Block new recordings while a global upload is in progress.
         if (globalUploadStatus && !globalUploadStatus.done) {
           port.postMessage({ type: "uploadStatus", ...globalUploadStatus });
@@ -196,8 +283,9 @@ function popupHandler(port) {
       }
 
       case "stopRecording":
-        // @ts-expect-error - TS7005 - Variable 'tabId' implicitly has an 'any' type.
-        await stopRecorder(tabId, { triggerDraft: true });
+        if (tabId !== null) {
+          await stopRecorder(tabId, { triggerDraft: true });
+        }
         break;
 
       case "getApiBaseUrl": {
@@ -226,8 +314,9 @@ function popupHandler(port) {
       }
 
       case "toggleBehaviors":
-        // @ts-expect-error - TS7005 - Variable 'tabId' implicitly has an 'any' type.
-        toggleBehaviors(tabId);
+        if (tabId !== null) {
+          toggleBehaviors(tabId);
+        }
         break;
 
       case "newColl": {
@@ -373,6 +462,18 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // ===========================================================================
 // @ts-expect-error - TS7006 - Parameter 'tabId' implicitly has an 'any' type. | TS7006 - Parameter 'opts' implicitly has an 'any' type.
 async function startRecorder(tabId, opts) {
+  const currentTabUrl = await getTabUrl(tabId);
+  const apiBaseUrl = await getApiBaseUrl();
+  if (isProtectedCaptureUrl(currentTabUrl, apiBaseUrl)) {
+    sendUploadStatus(null, {
+      progress: 100,
+      text: "Grabación bloqueada en SIAI para proteger la sesión activa.",
+      done: true,
+      error: true,
+    }, tabId);
+    return "protected_capture_url";
+  }
+
   if (!self.recorders[tabId]) {
     opts.collLoader = collLoader;
     opts.openWinMap = openWinMap;
@@ -634,6 +735,7 @@ function ensureWaczFilename(filename: string | undefined, collId: string) {
 async function postDraftForm(
   formData: FormData,
   endpoint: string,
+  extensionKey: string,
   onUploadProgress?: (loaded: number, total: number) => void,
 ): Promise<Response> {
   // Service workers don't have XMLHttpRequest; use fetch and simulate progress
@@ -661,16 +763,31 @@ async function postDraftForm(
     }, 200);
   }
 
-  try {
-    const resp = await fetch(endpoint, {
+  const doFetch = async (targetEndpoint: string) => {
+    return await fetch(targetEndpoint, {
       method: "POST",
+      mode: "cors",
       credentials: "include",
       headers: {
         Accept: "application/json",
         "X-Requested-With": "XMLHttpRequest",
+        ...(extensionKey ? { "X-Hemeroteca-Extension-Key": extensionKey } : {}),
       },
       body: formData,
     });
+  };
+
+  try {
+    let resp = await doFetch(endpoint);
+
+    if (!resp.ok && endpoint.startsWith("https://")) {
+      const previewText = await resp.clone().text();
+      if (looksLikeCertificateVerificationPage(resp.status, previewText)) {
+        const insecureEndpoint = toHttpUrl(endpoint);
+        console.warn("HTTPS certificate verification failed, retrying upload over HTTP:", insecureEndpoint);
+        resp = await doFetch(insecureEndpoint);
+      }
+    }
 
     if (simulationTimer !== null) {
       clearInterval(simulationTimer);
@@ -690,6 +807,15 @@ async function postDraftForm(
     const msg = (err instanceof Error) ? err.message.toLowerCase() : "";
     if (msg.includes("abort")) throw new Error("upload_aborted");
     if (msg.includes("timeout")) throw new Error("upload_timeout");
+    if (endpoint.startsWith("https://")) {
+      try {
+        const insecureEndpoint = toHttpUrl(endpoint);
+        console.warn("Upload fetch failed over HTTPS, retrying over HTTP:", insecureEndpoint);
+        return await doFetch(insecureEndpoint);
+      } catch (_retryError) {
+        // fall through to normalized error below
+      }
+    }
     throw new Error("network_error_during_upload");
   }
 }
@@ -921,6 +1047,7 @@ async function uploadCollectionToApi(
     const pageText = await getPageText(tabId);
     const thumbnailFile = await captureThumbnail(tabId);
     const endpoint = await getApiDraftEndpoint();
+    const extensionKey = await getApiExtensionKey();
 
     // Truncate to avoid sending megabytes of text for heavy pages.
     // Backend validation also enforces max:100000.
@@ -943,7 +1070,7 @@ async function uploadCollectionToApi(
       done: false,
     }, tabId);
 
-    const resp = await postDraftForm(formData, endpoint, (loaded, total) => {
+    const resp = await postDraftForm(formData, endpoint, extensionKey, (loaded, total) => {
       // Map real HTTP upload progress: 65% → 93%
       const pct = total > 0 ? Math.min(loaded / total, 1) : 0;
       const mapped = Math.round(65 + pct * 28);
@@ -962,7 +1089,13 @@ async function uploadCollectionToApi(
         throw new Error(`csrf_token_expired_419 (status ${resp.status}): ${errorBody}`);
       }
       if (resp.status === 401 || resp.status === 403) {
-        throw new Error(`auth_required_${resp.status} (status ${resp.status}): ${errorBody}`);
+        const looksLikeUnauthenticated = /Unauthenticated|unauthenticated/i.test(errorBody);
+        const authCause = looksLikeUnauthenticated
+          ? "session_or_cookie_missing"
+          : "user_permission_or_auth_required";
+        throw new Error(
+          `auth_required_${resp.status}_${authCause} (status ${resp.status}): ${errorBody}`,
+        );
       }
       throw new Error(`API ${resp.status}: ${errorBody}`);
     }
@@ -1029,9 +1162,24 @@ async function uploadCollectionToApi(
     } else if (msg.includes("csrf_token_expired_419")) {
       console.warn("Source upload failed with 419 (Page Expired). La sesion existe pero la ruta requiere CSRF.");
       userFacingError = "Sesión expirada (419). Recarga la página del servidor y vuelve a intentar.";
+    } else if (
+      msg.includes("auth_required_401_session_or_cookie_missing") ||
+      msg.includes("auth_required_403_session_or_cookie_missing")
+    ) {
+      console.warn("Source upload failed: no viajo laravel_session en la solicitud al backend.");
+      userFacingError = "Sesión no detectada. Verifica en Network que la request draft incluya Cookie con laravel_session.";
+    } else if (
+      msg.includes("auth_required_401_user_permission_or_auth_required") ||
+      msg.includes("auth_required_403_user_permission_or_auth_required")
+    ) {
+      console.warn("Source upload failed: autenticado pero sin permiso para crear draft.");
+      userFacingError = "El usuario autenticado no tiene permisos para crear borradores en el servidor.";
     } else if (msg.includes("auth_required_401") || msg.includes("auth_required_403")) {
-      console.warn("Source upload failed: sesion no valida en el dominio del backend.");
-      userFacingError = "Sesión no válida. Inicia sesión en el servidor antes de archivar.";
+      console.warn("Source upload failed: sesion/clave de extensión inválida en backend.");
+      userFacingError = "No autorizado. Verifica apiBaseUrl y apiExtensionKey de la extensión.";
+    } else if (msg.includes("api 499:") || msg.includes("certificate verification")) {
+      console.warn("Source upload failed due to HTTPS certificate verification.");
+      userFacingError = "Fallo de certificado HTTPS. Configura la extensión con http://siaikevin.test o instala un certificado confiable.";
     } else if (msg.includes("draft_response_missing_openUrl_or_draftToken")) {
       console.warn("Draft response is missing openUrl or draftToken. Payload:", msg);
       userFacingError = "El servidor respondió con un formato inesperado.";

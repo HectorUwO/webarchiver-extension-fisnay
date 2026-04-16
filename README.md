@@ -134,6 +134,22 @@ rm -rf node_modules
 yarn install
 ```
 
+### Error Unauthenticated al subir draft
+
+Si Laravel responde `Unauthenticated` al endpoint de draft, valida primero la sesión (no CSRF para esa ruta):
+
+1. Abre DevTools en la extensión/página y ve a **Network**.
+2. Ubica la request `POST` a `/hemeroteca/api/sources/draft`.
+3. En los request headers, confirma que exista `Cookie` y que incluya `laravel_session`.
+
+Si no aparece `laravel_session`, la cookie no está viajando por contexto de extensión o por `credentials`.
+
+Notas:
+
+- Ese endpoint draft está excluido de CSRF en este proyecto.
+- Para otros endpoints `POST`, puede requerirse `X-XSRF-TOKEN`.
+- Si la cookie sí viaja pero responde `401/403`, revisa permisos del usuario autenticado en backend.
+
 En Windows (PowerShell):
 
 ```powershell

@@ -1,6 +1,6 @@
 {
   "name": "Webrecorder ArchiveWeb.page",
-  "description": "Create high-fidelity web archives directly in your browser",
+  "description": "Extensión para la captura de páginas web",
   "version": "$VERSION",
   "permissions": [
     "debugger",

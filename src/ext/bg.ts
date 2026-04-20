@@ -29,9 +29,18 @@ const openWinMap = new Map();
 const collLoader = new CollectionLoader();
 const DEFAULT_API_BASE_URL = "http://siaikevin.test";
 const API_BASE_URL_STORAGE_KEY = "apiBaseUrl";
-const API_EXTENSION_KEY_STORAGE_KEY = "apiExtensionKey";
 const uploadInProgress = new Set<string>();
 const PROTECTED_CAPTURE_HOSTS = new Set(["siaikevin.test", "www.siaikevin.test", "siai2"]);
+
+/** Pending captures waiting to be transferred to the register page via content script. */
+const pendingCaptures = new Map<string, {
+  arrayBuffer: ArrayBuffer;
+  filename: string;
+  url: string;
+  text: string;
+  thumbnailBase64: string | null;
+}>();
+const TRANSFER_CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB base64 chunks
 
 // Global upload state — persists across tab switches.
 let globalUploadStatus: {
@@ -95,33 +104,6 @@ function broadcastUploadStatus(
   }
 }
 
-async function getApiDraftEndpoint(): Promise<string> {
-  try {
-    const result = await chrome.storage.local.get(API_BASE_URL_STORAGE_KEY);
-    const stored = result?.[API_BASE_URL_STORAGE_KEY];
-    if (typeof stored === "string" && /^https?:\/\/.+/.test(stored.trim())) {
-      return stored.trim().replace(/\/$/, "") + "/hemeroteca/ext/sources/draft";
-    }
-  } catch (_e) {
-    // ignore storage errors
-  }
-  return DEFAULT_API_BASE_URL + "/hemeroteca/ext/sources/draft";
-}
-
-async function getApiExtensionKey(): Promise<string> {
-  try {
-    const result = await chrome.storage.local.get(API_EXTENSION_KEY_STORAGE_KEY);
-    const stored = result?.[API_EXTENSION_KEY_STORAGE_KEY];
-    if (typeof stored === "string") {
-      return stored.trim();
-    }
-  } catch (_e) {
-    // ignore storage errors
-  }
-
-  return "";
-}
-
 async function getApiBaseUrl(): Promise<string> {
   try {
     const result = await chrome.storage.local.get(API_BASE_URL_STORAGE_KEY);
@@ -144,30 +126,6 @@ function getHostnameSafe(url: string): string {
   }
 }
 
-function toHttpUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    parsed.protocol = "http:";
-    return parsed.href;
-  } catch (_e) {
-    return url;
-  }
-}
-
-function looksLikeCertificateVerificationPage(status: number, bodyText: string): boolean {
-  if (![495, 496, 497, 499].includes(status)) {
-    return false;
-  }
-
-  const lowered = bodyText.toLowerCase();
-  return (
-    lowered.includes("problema de verificación del certificado") ||
-    lowered.includes("problema de verificacion del certificado") ||
-    lowered.includes("certificate verification") ||
-    lowered.includes("kaspersky")
-  );
-}
-
 function isProtectedCaptureUrl(targetUrl: string, apiBaseUrl: string): boolean {
   const targetHost = getHostnameSafe(targetUrl);
   if (!targetHost) {
@@ -185,8 +143,6 @@ const uploadStatusByTab = new Map<
   number,
   { progress: number; text: string; done: boolean; error: boolean }
 >();
-// Keep local data until the user finishes the final web form save.
-const AUTO_DELETE_LOCAL_AFTER_UPLOAD = false;
 
 const disabledCSPTabs = new Set();
 
@@ -545,7 +501,7 @@ async function stopRecorder(tabId, { triggerDraft = false } = {}) {
     // @ts-expect-error - TS2339 - Property 'pageUrl' does not exist on type 'BrowserRecorder'.
     const pageUrl = recorder.pageUrl;
     if (triggerDraft) {
-      await uploadCollectionToApi(collId, pageUrl, tabId, recorder);
+      await prepareLocalCapture(collId, pageUrl, tabId, recorder);
     } else {
       sendUploadStatus(recorder, {
         progress: 100,
@@ -606,7 +562,7 @@ function sendUploadStatus(
       text,
       done,
       error,
-      tabId: (targetTabId as number) || 0,
+      tabId: targetTabId ?? 0,
     };
   } else {
     // Keep the final (done) state briefly so the popup can read it on reconnect,
@@ -616,7 +572,7 @@ function sendUploadStatus(
       text,
       done,
       error,
-      tabId: (targetTabId as number) || 0,
+      tabId: targetTabId ?? 0,
     };
     setTimeout(() => {
       if (globalUploadStatus?.done) {
@@ -664,7 +620,7 @@ async function waitForRecorderToFlush(recorder: unknown, timeoutMs = 180_000) {
   // on the server. Surface it as a real error the user can see.
   throw new Error(
     `recorder_flush_timeout: el grabador tardó más de ${Math.round(timeoutMs / 1000)} s ` +
-    `en finalizar (pending=${(rec as any).numPending ?? '?'}). ` +
+    `en finalizar (pending=${rec.numPending ?? '?'}). ` +
     `Es posible que la página sea demasiado grande o que el equipo esté muy cargado.`,
   );
 }
@@ -730,150 +686,6 @@ function ensureWaczFilename(filename: string | undefined, collId: string) {
     return baseName.slice(0, -4) + ".wacz.zip";
   }
   return `${baseName}.wacz`;
-}
-
-async function postDraftForm(
-  formData: FormData,
-  endpoint: string,
-  extensionKey: string,
-  onUploadProgress?: (loaded: number, total: number) => void,
-): Promise<Response> {
-  // Service workers don't have XMLHttpRequest; use fetch and simulate progress
-  // by ticking a fake counter until the request resolves.
-  let simulationTimer: ReturnType<typeof setInterval> | null = null;
-  let simulatedLoaded = 0;
-
-  if (onUploadProgress) {
-    // Estimate total bytes from FormData entries (best-effort)
-    let estimatedTotal = 0;
-    for (const value of (formData as any).values()) {
-      if (value instanceof Blob) {
-        estimatedTotal += value.size;
-      } else if (typeof value === "string") {
-        estimatedTotal += value.length;
-      }
-    }
-    if (estimatedTotal === 0) estimatedTotal = 5 * 1024 * 1024; // 5 MB fallback
-
-    // Tick every 200 ms; advance ~4 % of remaining distance toward 95 %
-    simulationTimer = setInterval(() => {
-      const remaining = estimatedTotal * 0.95 - simulatedLoaded;
-      simulatedLoaded += remaining * 0.08;
-      onUploadProgress(Math.round(simulatedLoaded), estimatedTotal);
-    }, 200);
-  }
-
-  const doFetch = async (targetEndpoint: string) => {
-    return await fetch(targetEndpoint, {
-      method: "POST",
-      mode: "cors",
-      credentials: "include",
-      headers: {
-        Accept: "application/json",
-        "X-Requested-With": "XMLHttpRequest",
-        ...(extensionKey ? { "X-Hemeroteca-Extension-Key": extensionKey } : {}),
-      },
-      body: formData,
-    });
-  };
-
-  try {
-    let resp = await doFetch(endpoint);
-
-    if (!resp.ok && endpoint.startsWith("https://")) {
-      const previewText = await resp.clone().text();
-      if (looksLikeCertificateVerificationPage(resp.status, previewText)) {
-        const insecureEndpoint = toHttpUrl(endpoint);
-        console.warn("HTTPS certificate verification failed, retrying upload over HTTP:", insecureEndpoint);
-        resp = await doFetch(insecureEndpoint);
-      }
-    }
-
-    if (simulationTimer !== null) {
-      clearInterval(simulationTimer);
-      simulationTimer = null;
-    }
-    // Report 100 % on completion
-    if (onUploadProgress) {
-      const total = simulatedLoaded > 0 ? simulatedLoaded / 0.95 : 1;
-      onUploadProgress(Math.round(total), Math.round(total));
-    }
-
-    return resp;
-  } catch (err) {
-    if (simulationTimer !== null) {
-      clearInterval(simulationTimer);
-    }
-    const msg = (err instanceof Error) ? err.message.toLowerCase() : "";
-    if (msg.includes("abort")) throw new Error("upload_aborted");
-    if (msg.includes("timeout")) throw new Error("upload_timeout");
-    if (endpoint.startsWith("https://")) {
-      try {
-        const insecureEndpoint = toHttpUrl(endpoint);
-        console.warn("Upload fetch failed over HTTPS, retrying over HTTP:", insecureEndpoint);
-        return await doFetch(insecureEndpoint);
-      } catch (_retryError) {
-        // fall through to normalized error below
-      }
-    }
-    throw new Error("network_error_during_upload");
-  }
-}
-
-async function readDraftResponseData(resp: Response) {
-  const text = await resp.text();
-  const contentType = resp.headers.get("content-type") || "";
-
-  if (!text) {
-    return { text: "", data: null };
-  }
-
-  if (contentType.includes("application/json")) {
-    return { text, data: JSON.parse(text) };
-  }
-
-  try {
-    return { text, data: JSON.parse(text) };
-  } catch (_e) {
-    return { text, data: null };
-  }
-}
-
-function extractDraftResult(data: unknown) {
-  const asString = (value: unknown) =>
-    typeof value === "string" && value.trim() ? value : "";
-
-  const root = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
-  const nested =
-    (root.data as Record<string, unknown>) ||
-    (root.result as Record<string, unknown>) ||
-    (root.payload as Record<string, unknown>) ||
-    (root.attributes as Record<string, unknown>) ||
-    {};
-
-  const rawOpenUrl = asString(
-    root.openUrl ||
-    root.open_url ||
-    root.url ||
-    root.formUrl ||
-    root.form_url ||
-    nested.openUrl ||
-    nested.open_url ||
-    nested.url ||
-    nested.formUrl ||
-    nested.form_url,
-  );
-
-  const draftToken = asString(
-    root.draftToken ||
-    root.draft_token ||
-    root.token ||
-    nested.draftToken ||
-    nested.draft_token ||
-    nested.token,
-  );
-
-  return { rawOpenUrl, draftToken };
 }
 
 async function getPageText(tabId: number) {
@@ -964,7 +776,36 @@ async function captureThumbnail(tabId: number): Promise<File | null> {
   return makePlaceholderThumbnail();
 }
 
-async function uploadCollectionToApi(
+/**
+ * Converts an ArrayBuffer chunk to a base64 string.
+ * Used for transferring binary data over JSON-only port messages.
+ */
+function arrayBufferChunkToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+/**
+ * Convert a thumbnail File (image/png) to a base64 data URL string.
+ * Returns null if the file is null.
+ */
+async function thumbnailToBase64(file: File | null): Promise<string | null> {
+  if (!file) return null;
+  const buffer = await file.arrayBuffer();
+  const base64 = arrayBufferChunkToBase64(buffer);
+  return `data:${file.type};base64,${base64}`;
+}
+
+/**
+ * Generate WACZ from collection, store in memory, and open the register page.
+ * The content script (capture-bridge.ts) will connect back via port to receive
+ * the file data in chunks and hand it to the page.
+ */
+async function prepareLocalCapture(
   collId: string,
   pageUrl: string,
   tabId: number,
@@ -996,7 +837,7 @@ async function uploadCollectionToApi(
 
     const filename = ensureWaczFilename(dlResp.filename, collId);
 
-    // Stream the WACZ body reporting real read progress (40% → 65%)
+    // Stream the WACZ body reporting real read progress (40% → 70%)
     let blob: Blob;
     if (dlResp.body) {
       const contentLength = parseInt(dlResp.headers.get("content-length") || "0", 10);
@@ -1012,7 +853,7 @@ async function uploadCollectionToApi(
         received += value.byteLength;
         if (contentLength > 0) {
           const readPct = Math.min(received / contentLength, 1);
-          const mapped = Math.round(40 + readPct * 20); // 40 → 60
+          const mapped = Math.round(40 + readPct * 30); // 40 → 70
           sendUploadStatus(recorder, {
             progress: mapped,
             text: `Generando archivo (${Math.round(readPct * 100)}\u00a0%)...`,
@@ -1034,8 +875,8 @@ async function uploadCollectionToApi(
     }
 
     sendUploadStatus(recorder, {
-      progress: 62,
-      text: "Preparando datos para enviar...",
+      progress: 75,
+      text: "Preparando captura...",
       done: false,
     }, tabId);
 
@@ -1046,94 +887,43 @@ async function uploadCollectionToApi(
 
     const pageText = await getPageText(tabId);
     const thumbnailFile = await captureThumbnail(tabId);
-    const endpoint = await getApiDraftEndpoint();
-    const extensionKey = await getApiExtensionKey();
-
-    // Truncate to avoid sending megabytes of text for heavy pages.
-    // Backend validation also enforces max:100000.
     const truncatedText = pageText.slice(0, 100_000);
+    const thumbnailBase64 = await thumbnailToBase64(thumbnailFile);
 
-    const formData = new FormData();
-    formData.append("url", sourceUrl);
-    formData.append("text", truncatedText);
-    if (thumbnailFile) {
-      formData.append("thumbnailFile", thumbnailFile);
-    }
-    formData.append(
-      "waczFile",
-      new File([blob], filename, { type: "application/octet-stream" }),
-    );
-
-    sendUploadStatus(recorder, {
-      progress: 65,
-      text: "Subiendo al servidor (0\u00a0%)...",
-      done: false,
-    }, tabId);
-
-    const resp = await postDraftForm(formData, endpoint, extensionKey, (loaded, total) => {
-      // Map real HTTP upload progress: 65% → 93%
-      const pct = total > 0 ? Math.min(loaded / total, 1) : 0;
-      const mapped = Math.round(65 + pct * 28);
-      sendUploadStatus(recorder, {
-        progress: mapped,
-        text: `Subiendo al servidor (${Math.round(pct * 100)}\u00a0%)...`,
-        done: false,
-      }, tabId);
+    // Store the capture in memory for the content script to pick up
+    const captureId = crypto.randomUUID();
+    const arrayBuffer = await blob.arrayBuffer();
+    pendingCaptures.set(captureId, {
+      arrayBuffer,
+      filename,
+      url: sourceUrl,
+      text: truncatedText,
+      thumbnailBase64,
     });
-    const { text: respText, data } = await readDraftResponseData(resp);
 
-    if (!resp.ok) {
-      const errorBody = data ? JSON.stringify(data) : respText;
-      console.error("Draft upload failed", resp.status, errorBody);
-      if (resp.status === 419) {
-        throw new Error(`csrf_token_expired_419 (status ${resp.status}): ${errorBody}`);
-      }
-      if (resp.status === 401 || resp.status === 403) {
-        const looksLikeUnauthenticated = /Unauthenticated|unauthenticated/i.test(errorBody);
-        const authCause = looksLikeUnauthenticated
-          ? "session_or_cookie_missing"
-          : "user_permission_or_auth_required";
-        throw new Error(
-          `auth_required_${resp.status}_${authCause} (status ${resp.status}): ${errorBody}`,
-        );
-      }
-      throw new Error(`API ${resp.status}: ${errorBody}`);
-    }
-
-    const { rawOpenUrl, draftToken } = extractDraftResult(data);
-
-    if (!rawOpenUrl || !draftToken) {
-      const payload = data ? JSON.stringify(data) : respText;
-      throw new Error(`draft_response_missing_openUrl_or_draftToken: ${payload}`);
-    }
-
-    const openUrl = /^https?:\/\//i.test(rawOpenUrl)
-      ? rawOpenUrl
-      : new URL(rawOpenUrl, endpoint).href;
+    // Auto-expire after 30 minutes to prevent memory leaks
+    setTimeout(() => { pendingCaptures.delete(captureId); }, 30 * 60 * 1000);
 
     sendUploadStatus(recorder, {
-      progress: 95,
-      text: "Subida completada. Abriendo formulario del servidor...",
+      progress: 85,
+      text: "Abriendo formulario de registro...",
       done: false,
     }, tabId);
 
-    await chrome.tabs.create({ url: openUrl });
+    const baseUrl = await getApiBaseUrl();
+    const registerUrl = `${baseUrl}/hemeroteca/register?captureId=${captureId}`;
+    await chrome.tabs.create({ url: registerUrl });
 
     sendUploadStatus(recorder, {
       progress: 100,
-      text: "Formulario abierto en el servidor.",
+      text: "Formulario abierto. Completa los datos y guarda.",
       done: true,
     }, tabId);
 
-    console.log(`Draft form opened for collection ${collId}`);
+    console.log(`Local capture ready for collection ${collId}, captureId=${captureId}`);
 
-    if (AUTO_DELETE_LOCAL_AFTER_UPLOAD) {
-      await collLoader.deleteColl(collId);
-    } else {
-      // Always delete the used collection after a successful upload so
-      // the next recording starts clean and doesn't accumulate pages.
-      await collLoader.deleteColl(collId);
-    }
+    // Clean up local collection
+    await collLoader.deleteColl(collId);
 
     if (tabId) {
       await removeLocalOption(`${tabId}-collId`);
@@ -1154,41 +944,14 @@ async function uploadCollectionToApi(
     let userFacingError: string;
 
     if (msg.includes("recorder_flush_timeout")) {
-      console.warn("Recorder flush timed out before WACZ could be generated.");
-      userFacingError = "La captura tardó demasiado en cerrar. Intenta con una página más pequeña o un equipo menos cargado.";
+      userFacingError = "La captura tardó demasiado en cerrar. Intenta con una página más pequeña.";
     } else if (msg.includes("captured_url_missing")) {
-      console.warn("No se pudo obtener la URL capturada de la pestana.");
       userFacingError = "No se pudo obtener la URL de la página archivada.";
-    } else if (msg.includes("csrf_token_expired_419")) {
-      console.warn("Source upload failed with 419 (Page Expired). La sesion existe pero la ruta requiere CSRF.");
-      userFacingError = "Sesión expirada (419). Recarga la página del servidor y vuelve a intentar.";
-    } else if (
-      msg.includes("auth_required_401_session_or_cookie_missing") ||
-      msg.includes("auth_required_403_session_or_cookie_missing")
-    ) {
-      console.warn("Source upload failed: no viajo laravel_session en la solicitud al backend.");
-      userFacingError = "Sesión no detectada. Verifica en Network que la request draft incluya Cookie con laravel_session.";
-    } else if (
-      msg.includes("auth_required_401_user_permission_or_auth_required") ||
-      msg.includes("auth_required_403_user_permission_or_auth_required")
-    ) {
-      console.warn("Source upload failed: autenticado pero sin permiso para crear draft.");
-      userFacingError = "El usuario autenticado no tiene permisos para crear borradores en el servidor.";
-    } else if (msg.includes("auth_required_401") || msg.includes("auth_required_403")) {
-      console.warn("Source upload failed: sesion/clave de extensión inválida en backend.");
-      userFacingError = "No autorizado. Verifica apiBaseUrl y apiExtensionKey de la extensión.";
-    } else if (msg.includes("api 499:") || msg.includes("certificate verification")) {
-      console.warn("Source upload failed due to HTTPS certificate verification.");
-      userFacingError = "Fallo de certificado HTTPS. Configura la extensión con http://siaikevin.test o instala un certificado confiable.";
-    } else if (msg.includes("draft_response_missing_openUrl_or_draftToken")) {
-      console.warn("Draft response is missing openUrl or draftToken. Payload:", msg);
-      userFacingError = "El servidor respondió con un formato inesperado.";
     } else if (msg.includes("chrome_scripting_unavailable")) {
-      console.warn("chrome.scripting is unavailable. Reload the extension after granting the scripting permission.");
       userFacingError = "Permiso de scripting no disponible. Recarga la extensión.";
     } else {
-      console.warn("Source upload failed:", msg);
-      userFacingError = "Error al subir el archivo al servidor.";
+      console.warn("Capture preparation failed:", msg);
+      userFacingError = "Error al preparar la captura.";
     }
 
     sendUploadStatus(recorder, {
@@ -1201,6 +964,54 @@ async function uploadCollectionToApi(
     uploadInProgress.delete(collId);
   }
 }
+
+/**
+ * Handle port connections from the capture-bridge content script.
+ * Streams the WACZ file as base64 chunks over the port.
+ */
+// @ts-expect-error - TS7006 - Parameter 'port' implicitly has an 'any' type.
+chrome.runtime.onConnect.addListener((port) => {
+  if (!port.name.startsWith("capture-transfer:")) return;
+
+  const captureId = port.name.slice("capture-transfer:".length);
+
+  port.onMessage.addListener((msg: Record<string, unknown>) => {
+    if (msg.type !== "get-capture") return;
+
+    const capture = pendingCaptures.get(captureId);
+    if (!capture) {
+      port.postMessage({ type: "error", error: "Captura no encontrada o expirada." });
+      port.disconnect();
+      return;
+    }
+
+    // Send metadata first
+    port.postMessage({
+      type: "metadata",
+      url: capture.url,
+      text: capture.text,
+      filename: capture.filename,
+      thumbnailBase64: capture.thumbnailBase64,
+    });
+
+    // Send file data in base64 chunks
+    const buffer = capture.arrayBuffer;
+    const totalChunks = Math.ceil(buffer.byteLength / TRANSFER_CHUNK_SIZE);
+
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * TRANSFER_CHUNK_SIZE;
+      const end = Math.min(start + TRANSFER_CHUNK_SIZE, buffer.byteLength);
+      const chunk = buffer.slice(start, end);
+      const base64 = arrayBufferChunkToBase64(chunk);
+      port.postMessage({ type: "chunk", index: i, total: totalChunks, data: base64 });
+    }
+
+    port.postMessage({ type: "done" });
+
+    // Clean up after successful transfer
+    pendingCaptures.delete(captureId);
+  });
+});
 
 // ===========================================================================
 // @ts-expect-error - TS7006 - Parameter 'tabId' implicitly has an 'any' type.

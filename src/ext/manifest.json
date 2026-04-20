@@ -3,6 +3,7 @@
   "description": "Extensión para la captura de páginas web",
   "version": "$VERSION",
   "permissions": [
+    "cookies",
     "debugger",
     "contextMenus",
     "notifications",
@@ -35,6 +36,13 @@
     }
   ],
   "host_permissions": ["*://*/*"],
+  "content_scripts": [
+    {
+      "matches": ["*://siaikevin.test/*", "*://siai2/*"],
+      "js": ["capture-bridge.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },

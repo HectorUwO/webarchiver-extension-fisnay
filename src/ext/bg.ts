@@ -233,7 +233,6 @@ function popupHandler(port) {
         await setLocalOption("defaultCollId", freshCollId);
         // Notify popup so it shows the new collection immediately.
         port.postMessage(await listAllMsg(collLoader, { defaultCollId }));
-        // @ts-expect-error - TS2554 - Expected 2 arguments, but got 3.
         startRecorder(tabId, { collId: freshCollId, port, autorun }, message.url);
         break;
       }
@@ -348,7 +347,6 @@ chrome.tabs.onCreated.addListener((tab) => {
     startRecorder(
       tab.id,
       { waitForTabUpdate, collId, openUrl, autorun },
-      // @ts-expect-error - TS2554 - Expected 2 arguments, but got 3.
       openUrl,
     );
   }
@@ -385,7 +383,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (!tabId || !isValidUrl(changeInfo.url)) {
       return;
     }
-    // @ts-expect-error - TS2554 - Expected 2 arguments, but got 3.
     startRecorder(tabId, { collId, autorun }, changeInfo.url);
   }
 });
@@ -417,7 +414,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
 // ===========================================================================
 // @ts-expect-error - TS7006 - Parameter 'tabId' implicitly has an 'any' type. | TS7006 - Parameter 'opts' implicitly has an 'any' type.
-async function startRecorder(tabId, opts) {
+async function startRecorder(tabId, opts, explicitInitialUrl = null) {
   const currentTabUrl = await getTabUrl(tabId);
   const apiBaseUrl = await getApiBaseUrl();
   if (isProtectedCaptureUrl(currentTabUrl, apiBaseUrl)) {
@@ -434,6 +431,8 @@ async function startRecorder(tabId, opts) {
     opts.collLoader = collLoader;
     opts.openWinMap = openWinMap;
     self.recorders[tabId] = new BrowserRecorder({ tabId }, opts);
+    // @ts-expect-error - TS2339 - Property 'pageUrl' does not exist on type 'BrowserRecorder'.
+    self.recorders[tabId].pageUrl = explicitInitialUrl || currentTabUrl;
   } else {
     self.recorders[tabId].setAutoRunBehavior(opts.autorun);
   }

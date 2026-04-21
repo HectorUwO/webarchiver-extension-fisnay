@@ -1166,8 +1166,8 @@ class RecPopup extends LitElement {
 
           <div class="view-row" style="justify-content: flex-end;">
           ${
-            // @ts-expect-error - TS2339 - Property 'canRecord' does not exist on type 'RecPopup'. | TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'.
-            this.canRecord && !this.uploadActive
+            // @ts-expect-error - TS2339 - Property 'canRecord' does not exist on type 'RecPopup'. | TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'. | TS2339 - Property 'recording' does not exist on type 'RecPopup'.
+            (this.canRecord || this.recording) && !this.uploadActive
               ? html`
                   <button
                     autofocus

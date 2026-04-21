@@ -291,6 +291,16 @@ class BrowserRecorder extends Recorder {
     }
   }
 
+  getStatusMsg() {
+    const msg = super.getStatusMsg();
+    // @ts-expect-error - TS2339 - Property 'pageUrl' does not exist on type 'BrowserRecorder'.
+    if (this.pageUrl) {
+      // @ts-expect-error - TS2339 - Property 'pageUrl' does not exist on type 'BrowserRecorder'.
+      msg.pageUrl = this.pageUrl;
+    }
+    return msg;
+  }
+
   getFavIcon() {
     return new Promise((resolve) => {
       // @ts-expect-error - TS2339 - Property 'tabId' does not exist on type 'BrowserRecorder'.

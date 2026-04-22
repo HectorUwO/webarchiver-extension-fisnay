@@ -41,6 +41,7 @@
     "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
+    "bestzip": "^2.2.3",
     "copy-webpack-plugin": "^9.0.1",
     "css-loader": "^6.2.0",
     "electron": "^39.2.6",
@@ -87,6 +88,7 @@
     "dist": "yarn run build && yarn run pack",
     "dist-dev": "yarn run build-dev && yarn run pack",
     "release": "yarn run build && electron-builder",
+    "zip:ext": "bestzip dist/ext.zip dist/ext/*",
     "lint": "eslint ./src/ webpack.config.js",
     "format": "prettier --write ./"
   },

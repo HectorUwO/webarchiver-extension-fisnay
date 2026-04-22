@@ -25,6 +25,31 @@ function wrapCss(custom) {
 }
 
 // ===========================================================================
+// Sitios donde la captura automática puede ser incompleta o no funcionar correctamente
+const LIMITED_CAPTURE_SITES: { domain: string; label: string; reason: string }[] = [
+  {
+    domain: "twitter.com",
+    label: "Twitter / X",
+    reason: "Contenido dinámico cargado con JavaScript avanzado y restricciones de API",
+  },
+  {
+    domain: "x.com",
+    label: "Twitter / X",
+    reason: "Contenido dinámico cargado con JavaScript avanzado y restricciones de API",
+  },
+  {
+    domain: "tiktok.com",
+    label: "TikTok",
+    reason: "Se recomienda adjuntar el video por separado en el registro",
+  },
+  {
+    domain: "youtube.com",
+    label: "YouTube",
+    reason: "Se recomienda adjuntar el video por separado en el registro",
+  },
+];
+
+// ===========================================================================
 class RecPopup extends LitElement {
   constructor() {
     super();
@@ -810,6 +835,52 @@ class RecPopup extends LitElement {
         color: #475569;
         background: #f1f5f9;
       }
+
+      .site-warning-banner {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        padding: 8px 10px;
+        background: #fffbeb;
+        border: 1px solid #fcd34d;
+        border-radius: 8px;
+        margin-top: 6px;
+      }
+
+      .site-warning-title {
+        font-size: 0.77rem;
+        font-weight: 700;
+        color: #92400e;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+
+      .site-warning-body {
+        font-size: 0.73rem;
+        color: #78350f;
+        line-height: 1.45;
+      }
+
+      .site-warning-body ul {
+        margin: 4px 0 0 0;
+        padding-left: 14px;
+      }
+
+      .site-warning-body li {
+        margin-bottom: 2px;
+      }
+
+      .site-warning-hint {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #92400e;
+        background: #fef3c7;
+        border: 1px solid #fcd34d;
+        border-radius: 5px;
+        padding: 4px 7px;
+        margin-top: 2px;
+      }
     `);
   }
 
@@ -1136,6 +1207,23 @@ class RecPopup extends LitElement {
             : html``
         }
 
+        ${this.limitedCaptureSite
+          ? html`
+            <div class="site-warning-banner">
+              <span class="site-warning-title">⚠ Captura limitada en este sitio</span>
+              <div class="site-warning-body">
+                <strong>${this.limitedCaptureSite.label}</strong> puede no archivarse correctamente:<br/>
+                <ul>
+                  <li>${this.limitedCaptureSite.reason}</li>
+                  <li>Es posible que contenido no quede registrado</li>
+                </ul>
+              </div>
+              <div class="site-warning-hint">💡 Se recomienda usar el <strong>registro manual o adjuntar los archivos por separado</strong> en SIAI2 para garantizar la preservación completa.</div>
+            </div>
+          `
+          : html``
+        }
+
         <div class="container">
           <div class="status-row">
             <p class="rec-state">${this.renderStatus()}</p>
@@ -1236,6 +1324,20 @@ class RecPopup extends LitElement {
         <div class="credits">Basado en <a href="https://webrecorder.net/archivewebpage/" target="_blank" rel="noopener noreferrer">Archive webpage</a></div>
       </div>
     `;
+  }
+
+  /** Returns the matching entry from LIMITED_CAPTURE_SITES if the current page is a known problematic site. */
+  get limitedCaptureSite(): { domain: string; label: string; reason: string } | null {
+    // @ts-expect-error - TS2339 - Property 'pageUrl' does not exist on type 'RecPopup'.
+    const url = this.pageUrl as string | undefined;
+    if (!url) return null;
+    let hostname = "";
+    try {
+      hostname = new URL(url).hostname.replace(/^www\./, "");
+    } catch {
+      return null;
+    }
+    return LIMITED_CAPTURE_SITES.find((s) => hostname === s.domain || hostname.endsWith("." + s.domain)) ?? null;
   }
 
   get actionButtonDisabled() {

@@ -65,7 +65,7 @@ async function transferCapture(captureId: string) {
 
     if (type === "done") {
       // Assemble all chunks into a single File
-      const blob = new Blob(chunks, { type: "application/octet-stream" });
+      const blob = new Blob(chunks as BlobPart[], { type: "application/octet-stream" });
       const file = new File([blob], metadata?.filename || "capture.wacz", {
         type: "application/octet-stream",
       });

@@ -675,16 +675,39 @@ async function resolveCapturedSourceUrl(tabId: number, pageUrl: string) {
   return "";
 }
 
-function ensureWaczFilename(filename: string | undefined, collId: string) {
+function getCaptureFilenameSuffix() {
+  return new Date()
+    .toISOString()
+    .replace(/\.\d{3}Z$/, "Z")
+    .replace(/[^0-9TZ]/g, "");
+}
+
+function ensureWaczFilename(
+  filename: string | undefined,
+  collId: string,
+  uniqueSuffix = getCaptureFilenameSuffix(),
+) {
   const safeCollId = String(collId || "archive").replace(/[^a-zA-Z0-9-_]/g, "-");
   const baseName = filename || `${safeCollId}.wacz`;
-  if (baseName.endsWith(".wacz") || baseName.endsWith(".wacz.zip")) {
-    return baseName;
+  if (baseName.endsWith(".wacz.zip")) {
+    return `${baseName.slice(0, -9)}-${uniqueSuffix}.wacz.zip`;
+  }
+  if (baseName.endsWith(".wacz")) {
+    return `${baseName.slice(0, -5)}-${uniqueSuffix}.wacz`;
   }
   if (baseName.endsWith(".zip")) {
-    return baseName.slice(0, -4) + ".wacz.zip";
+    return `${baseName.slice(0, -4)}-${uniqueSuffix}.wacz.zip`;
   }
-  return `${baseName}.wacz`;
+  return `${baseName}-${uniqueSuffix}.wacz`;
+}
+
+function getRecorderPageList(recorder?: unknown): string[] | undefined {
+  const pageIds = (recorder as { sessionPageIds?: Set<string> } | undefined)
+    ?.sessionPageIds;
+  if (!pageIds?.size) {
+    return undefined;
+  }
+  return Array.from(pageIds);
 }
 
 async function getPageText(tabId: number) {
@@ -828,7 +851,8 @@ async function prepareLocalCapture(
       done: false,
     }, tabId);
 
-    const dl = new Downloader({ coll, format: "wacz" });
+    const pageList = getRecorderPageList(recorder);
+    const dl = new Downloader({ coll, format: "wacz", pageList });
     const dlResp = (await dl.download()) as ResponseWithFilename;
     if (!(dlResp instanceof Response)) {
       throw new Error("Failed to generate WACZ response");

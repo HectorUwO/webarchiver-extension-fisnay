@@ -986,7 +986,7 @@ class RecPopup extends LitElement {
             >
           </p>
           <p>
-            Si el error persiste, revisa la página de
+            Recarge la pagina, si el error persiste, revisa la página de
             <a
               href="https://archiveweb.page/guide/troubleshooting/errors"
               target="_blank"

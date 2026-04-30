@@ -41,6 +41,8 @@ class BrowserRecorder extends Recorder {
     this.autorun = autorun;
     // @ts-expect-error - TS2339 - Property 'isAttached' does not exist on type 'BrowserRecorder'.
     this.isAttached = false;
+    // @ts-expect-error - TS2339 - Property 'sessionPageIds' does not exist on type 'BrowserRecorder'.
+    this.sessionPageIds = new Set();
 
     // @ts-expect-error - TS2339 - Property 'flatMode' does not exist on type 'BrowserRecorder'.
     this.flatMode = IS_AGREGORE;
@@ -349,6 +351,10 @@ class BrowserRecorder extends Recorder {
     if (!pageInfo.url) {
       console.warn("Empty Page, Skipping");
       return;
+    }
+    if (pageInfo.id) {
+      // @ts-expect-error - TS2339 - Property 'sessionPageIds' does not exist on type 'BrowserRecorder'.
+      this.sessionPageIds.add(pageInfo.id);
     }
     // @ts-expect-error - TS2339 - Property 'db' does not exist on type 'BrowserRecorder'.
     if (this.db) {

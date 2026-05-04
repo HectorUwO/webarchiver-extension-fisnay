@@ -287,6 +287,8 @@ class Recorder {
     this.flushPending();
     // @ts-expect-error - TS2339 - Property 'running' does not exist on type 'Recorder'.
     this.running = false;
+    // @ts-expect-error - TS2339 - Property 'firstPageStarted' does not exist on type 'Recorder'.
+    this.firstPageStarted = false;
     // @ts-expect-error - TS2551 - Property 'pendingRequests' does not exist on type 'Recorder'. Did you mean 'pendingReqResp'?
     this.pendingRequests = {};
     // @ts-expect-error - TS2339 - Property 'numPending' does not exist on type 'Recorder'.
@@ -1004,7 +1006,7 @@ class Recorder {
     const resp = await this.send("Page.captureScreenshot", { format: "png" });
 
     const payload = Buffer.from(resp.data, "base64");
-    const blob = new Blob([payload], { type: "image/png" });
+    const blob = new Blob([new Uint8Array(payload)], { type: "image/png" });
 
     await this.send("Emulation.clearDeviceMetricsOverride");
 

@@ -201,7 +201,7 @@ class RecPopup extends LitElement {
         // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
         this.recording = message.recording;
         // @ts-expect-error - TS2339 - Property 'waitingForStart' does not exist on type 'RecPopup'.
-        if (this.waitingForStart && message.firstPageStarted) {
+        if (this.waitingForStart && message.recording && message.firstPageStarted) {
           // @ts-expect-error - TS2339 - Property 'waitingForStart' does not exist on type 'RecPopup'.
           this.waitingForStart = false;
         }

@@ -26,7 +26,7 @@ function wrapCss(custom) {
 
 // ===========================================================================
 // Sitios donde la captura automática puede ser incompleta o no funcionar correctamente
-const LIMITED_CAPTURE_SITES: { domain: string; label: string; reason: string }[] = [
+const LIMITED_CAPTURE_SITES: { domain: string; pathIncludes?: string; label: string; reason: string }[] = [
   {
     domain: "twitter.com",
     label: "Twitter / X",
@@ -40,13 +40,14 @@ const LIMITED_CAPTURE_SITES: { domain: string; label: string; reason: string }[]
   {
     domain: "tiktok.com",
     label: "TikTok",
-    reason: "Se recomienda adjuntar el video por separado en el registro",
+    reason: "Los tiktoks se guardan de forma incorrecta",
   },
   {
-    domain: "youtube.com",
-    label: "YouTube",
-    reason: "Se recomienda adjuntar el video por separado en el registro",
-  },
+    domain: "facebook.com",
+    pathIncludes: "/reel",
+    label: "Facebook Reels",
+    reason: "Los reels se guardan de forma incorrecta",
+  }
 ];
 
 // ===========================================================================
@@ -1210,134 +1211,147 @@ class RecPopup extends LitElement {
         ${this.limitedCaptureSite
           ? html`
             <div class="site-warning-banner">
-              <span class="site-warning-title">⚠ Captura limitada en este sitio</span>
+              <span class="site-warning-title">⚠ Captura desactivada en este sitio</span>
               <div class="site-warning-body">
-                <strong>${this.limitedCaptureSite.label}</strong> puede no archivarse correctamente:<br/>
+                No es posible realizar capturas automáticas en <strong>${this.limitedCaptureSite.label}</strong>:<br/>
                 <ul>
                   <li>${this.limitedCaptureSite.reason}</li>
-                  <li>Es posible que contenido no quede registrado</li>
                 </ul>
               </div>
-              <div class="site-warning-hint">💡 Se recomienda usar el <strong>registro manual o adjuntar los archivos por separado</strong> en SIAI2 para garantizar la preservación completa.</div>
+              <div class="site-warning-hint">💡 Por favor, usa el <strong>registro manual</strong> directamente en SIAI2.</div>
             </div>
           `
           : html``
         }
 
-        <div class="container">
-          <div class="status-row">
-            <p class="rec-state">${this.renderStatus()}</p>
-            <span class="pill ${
-              isUnarchivable
-                ? "is-unarchivable"
-                // @ts-expect-error - TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'.
-                : this.uploadActive
-                  ? "is-uploading"
-                // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
-                : this.recording
-                  ? "is-recording"
-                  : ""
-            }">
-              ${
-                isUnarchivable
-                  ? "No archivable"
-                  // @ts-expect-error - TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'.
-                  : this.uploadActive
-                    ? "Subiendo"
-                  // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
-                  : this.recording
-                    ? "Grabando"
-                    : "Listo"
-              }
-            </span>
-          </div>
-
-          <div class="view-row" style="justify-content: flex-end;">
-          ${
-            // @ts-expect-error - TS2339 - Property 'canRecord' does not exist on type 'RecPopup'. | TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'. | TS2339 - Property 'recording' does not exist on type 'RecPopup'.
-            (this.canRecord || this.recording) && !this.uploadActive
-              ? html`
-                  <button
-                    autofocus
-                    ?disabled=${this.actionButtonDisabled}
-                    @click="${
+        ${
+          // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
+          this.limitedCaptureSite && !this.recording
+            ? html``
+            : html`
+              <div class="container">
+                <div class="status-row">
+                  <p class="rec-state">${this.renderStatus()}</p>
+                  <span class="pill ${
+                    isUnarchivable
+                      ? "is-unarchivable"
+                      // @ts-expect-error - TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'.
+                      : this.uploadActive
+                        ? "is-uploading"
                       // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
-                      !this.recording ? this.onStart : this.onStop
-                    }"
-                    class="button action-button capture-btn ${
-                      // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
-                      !this.recording ? "is-start" : "is-stop"
-                    }"
-                  >
+                      : this.recording
+                        ? "is-recording"
+                        : ""
+                  }">
                     ${
-                      // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
-                      this.recording
-                        ? html`<span class="icon"><wr-icon .src=${fasBox}></wr-icon></span>`
-                        : html``
-                    }
-                    <span
-                      >${
+                      isUnarchivable
+                        ? "No archivable"
+                        // @ts-expect-error - TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'.
+                        : this.uploadActive
+                          ? "Subiendo"
                         // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
+                        : this.recording
+                          ? "Grabando"
+                          : "Listo"
+                    }
+                  </span>
+                </div>
 
-                        !this.recording ? "Iniciar archivado" : "Detener archivado"
-                      }</span
-                    >
-                  </button>
-                `
-              : ""
-          }
-          </div>
+                <div class="view-row" style="justify-content: flex-end;">
+                ${
+                  // @ts-expect-error - TS2339 - Property 'canRecord' does not exist on type 'RecPopup'. | TS2339 - Property 'uploadActive' does not exist on type 'RecPopup'. | TS2339 - Property 'recording' does not exist on type 'RecPopup'.
+                  ((this.canRecord && !this.limitedCaptureSite) || this.recording) && !this.uploadActive
+                    ? html`
+                        <button
+                          autofocus
+                          ?disabled=${this.actionButtonDisabled}
+                          @click="${
+                            // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
+                            !this.recording ? this.onStart : this.onStop
+                          }"
+                          class="button action-button capture-btn ${
+                            // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
+                            !this.recording ? "is-start" : "is-stop"
+                          }"
+                        >
+                          ${
+                            // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
+                            this.recording
+                              ? html`<span class="icon"><wr-icon .src=${fasBox}></wr-icon></span>`
+                              : html``
+                          }
+                          <span
+                            >${
+                              // @ts-expect-error - TS2339 - Property 'recording' does not exist on type 'RecPopup'.
 
-          ${
-            // @ts-expect-error - TS2339 - Property 'status' does not exist on type 'RecPopup'. | TS2339 - Property 'status' does not exist on type 'RecPopup'.
-            this.status?.sizeTotal
-              ? html`
-                  <div class="view-row underline">
-                    <div class="session-head">Archivado en esta pestaña</div>
-                  </div>
-                  <div class="view-row">
-                    <table class="status">
-                    <tr>
-                      <td>Tamaño guardado:</td>
-                      <th>
-                        ${
-                          // @ts-expect-error - TS2339 - Property 'status' does not exist on type 'RecPopup'.
-                          prettyBytes(this.status.sizeNew)
-                        }
-                      </th>
-                    </tr>
-                    <tr>
-                      <td>Tamaño cargado:</td>
-                      <th>
-                        ${
-                          // @ts-expect-error - TS2339 - Property 'status' does not exist on type 'RecPopup'.
-                          prettyBytes(this.status.sizeTotal)
-                        }
-                      </th>
-                    </tr>
-                    </table>
-                  </div>
-                `
-              : html``
-          }
-        </div>
-        <div class="credits">Basado en <a href="https://webrecorder.net/archivewebpage/" target="_blank" rel="noopener noreferrer">Archive webpage</a></div>
+                              !this.recording ? "Iniciar archivado" : "Detener archivado"
+                            }</span
+                          >
+                        </button>
+                      `
+                    : ""
+                }
+                </div>
+
+                ${
+                  // @ts-expect-error - TS2339 - Property 'status' does not exist on type 'RecPopup'. | TS2339 - Property 'status' does not exist on type 'RecPopup'.
+                  this.status?.sizeTotal
+                    ? html`
+                        <div class="view-row underline">
+                          <div class="session-head">Archivado en esta pestaña</div>
+                        </div>
+                        <div class="view-row">
+                          <table class="status">
+                          <tr>
+                            <td>Tamaño guardado:</td>
+                            <th>
+                              ${
+                                // @ts-expect-error - TS2339 - Property 'status' does not exist on type 'RecPopup'.
+                                prettyBytes(this.status.sizeNew)
+                              }
+                            </th>
+                          </tr>
+                          <tr>
+                            <td>Tamaño cargado:</td>
+                            <th>
+                              ${
+                                // @ts-expect-error - TS2339 - Property 'status' does not exist on type 'RecPopup'.
+                                prettyBytes(this.status.sizeTotal)
+                              }
+                            </th>
+                          </tr>
+                          </table>
+                        </div>
+                      `
+                    : html``
+                }
+              </div>
+            `
+        }
       </div>
     `;
   }
 
   /** Returns the matching entry from LIMITED_CAPTURE_SITES if the current page is a known problematic site. */
-  get limitedCaptureSite(): { domain: string; label: string; reason: string } | null {
+  get limitedCaptureSite(): { domain: string; pathIncludes?: string; label: string; reason: string } | null {
     // @ts-expect-error - TS2339 - Property 'pageUrl' does not exist on type 'RecPopup'.
     const url = this.pageUrl as string | undefined;
     if (!url) return null;
-    let hostname = "";
+    let urlObj: URL;
     try {
-      hostname = new URL(url).hostname.replace(/^www\./, "");
+      urlObj = new URL(url);
     } catch {
       return null;
     }
-    return LIMITED_CAPTURE_SITES.find((s) => hostname === s.domain || hostname.endsWith("." + s.domain)) ?? null;
+    const hostname = urlObj.hostname.replace(/^www\./, "");
+    const pathname = urlObj.pathname;
+    
+    return LIMITED_CAPTURE_SITES.find((s) => {
+      const domainMatch = hostname === s.domain || hostname.endsWith("." + s.domain);
+      if (!domainMatch) return false;
+      if (s.pathIncludes && !pathname.includes(s.pathIncludes)) return false;
+      return true;
+    }) ?? null;
   }
 
   get actionButtonDisabled() {

@@ -27,7 +27,7 @@ let autorun = false;
 const openWinMap = new Map();
 
 const collLoader = new CollectionLoader();
-const DEFAULT_API_BASE_URL = "http://siaikevin.test";
+const DEFAULT_API_BASE_URL = "https://siai2";
 const API_BASE_URL_STORAGE_KEY = "apiBaseUrl";
 const uploadInProgress = new Set<string>();
 const PROTECTED_CAPTURE_HOSTS = new Set(["siaikevin.test", "www.siaikevin.test", "siai2"]);
